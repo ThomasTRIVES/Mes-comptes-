@@ -476,6 +476,8 @@ async function boot(){
   if(!window.supabase){fallbackLocal("La synchro n'a pas pu se charger (hors ligne ?) : données de cet appareil.");return;}
   const cfg=sbConfig();if(!cfg){showSetup();return;}
   try{sb=supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"mc_auth"}});}catch(e){showSetup("Adresse ou clé invalide.");return;}
+  // retour depuis le mail « mot de passe oublié » : on demande le nouveau mot de passe
+  sb.auth.onAuthStateChange(ev=>{if(ev==="PASSWORD_RECOVERY")setTimeout(showNewPassword,0);});
   const{data}=await sb.auth.getSession();
   if(data&&data.session)startSession(data.session.user);else showLogin();
 }
@@ -510,8 +512,24 @@ function showLogin(){
     if(error)return say(/registered|exists/i.test(error.message)?"Ce compte existe déjà : touche « Se connecter ».":/not allowed|disabled/i.test(error.message)?"Les inscriptions sont fermées sur ce projet.":"Création impossible : "+error.message);
     if(data.session)startSession(data.user);else say("Compte créé. Ouvre le mail de confirmation, puis reviens te connecter.",true);};
   p.addEventListener("keydown",ev=>{if(ev.key==="Enter")login.click();});
-  b.appendChild(login);b.appendChild(signup);
+  const forgot=el("button","link-btn","Mot de passe oublié ?");
+  forgot.onclick=async()=>{const em=e.value.trim();if(!em)return say("Entre ton email, puis touche « Mot de passe oublié ? ».");forgot.disabled=true;
+    const{error}=await sb.auth.resetPasswordForEmail(em,{redirectTo:location.href.split("#")[0].split("?")[0]});forgot.disabled=false;
+    if(error)return say(/rate|seconds/i.test(error.message)?"Attends une minute avant de redemander un mail.":"Envoi impossible : "+error.message);
+    say("Mail envoyé à "+em+". Ouvre le lien qu'il contient sur cet appareil pour choisir un nouveau mot de passe.",true);};
+  b.appendChild(login);b.appendChild(signup);b.appendChild(forgot);
   if(!(SUPABASE_URL&&SUPABASE_ANON_KEY)){const reset=el("button","link-btn","Changer de projet Supabase");reset.onclick=()=>{try{localStorage.removeItem("mc_sb");}catch(x){}showSetup();};b.appendChild(reset);}
+}
+function showNewPassword(){
+  const b=modal("Nouveau mot de passe");
+  const[l,p]=field("Nouveau mot de passe","password","newPass","6 caractères minimum");p.autocomplete="new-password";b.appendChild(l);
+  const msg=el("div","err");msg.hidden=true;b.appendChild(msg);
+  const save=el("button","btn primary","Enregistrer");save.style.justifyContent="center";
+  save.onclick=async()=>{if(p.value.length<6){msg.textContent="6 caractères minimum.";msg.hidden=false;return;}save.disabled=true;
+    const{error}=await sb.auth.updateUser({password:p.value});save.disabled=false;
+    if(error){msg.textContent="Échec : "+error.message;msg.hidden=false;return;}
+    closeModal();setStatus("Mot de passe changé.");};
+  b.appendChild(save);
 }
 function openAccount(){
   const b=modal("Mon compte");
@@ -764,44 +782,52 @@ async function exportCsv(){
 // Mouvements entre tes propres comptes (Boursobank courant ↔ Livret ↔ Revolut) : jamais comptés en revenu/dépense.
 const INTERNAL_RE=/REVOLUT|RECHARGE|LIVRET|EPARGNE|ÉPARGNE|REGULARISATION DU COMPTE|VIREMENT INTERNE|VERS COMPTE/;
 const MOIS={janv:1,jan:1,"févr":2,fevr:2,"fév":2,fev:2,mars:3,mar:3,avr:4,mai:5,juin:6,juil:7,"août":8,aout:8,sept:9,sep:9,oct:10,nov:11,"déc":12,dec:12};
-const AMT_RE=/^([+\-−]?)\s?(\d{1,3}(?:[.   ]\d{3})+|\d+),(\d{2})\s?(?:€|¤|EUR)?$/;
-const OUT_H=/^(débit|debit|argent sortant|sortant|montant débité|dépenses?)$/i, IN_H=/^(crédit|credit|argent entrant|entrant|montant crédité|recettes?)$/i, BAL_H=/^solde$/i;
+const AMT_RE=/^([+\-−]?)\s?(\d{1,3}(?:[.   ]\d{3})+|\d+),(\d{2})\s?(?:€|¤|¨|EUR|EUROS)?$/i;
+// en-têtes de colonnes : Boursobank « Débit / Crédit », Crédit Agricole « Débit EUROS / Crédit EUROS », Revolut « Argent sortant / entrant »
+const OUT_H=/^(débit|debit|argent sortant|sortant|montant débité|dépenses?)(\s*(en\s*)?(euros?|eur|€|¨))?\.?$/i, IN_H=/^(crédit|credit|argent entrant|entrant|montant crédité|recettes?)(\s*(en\s*)?(euros?|eur|€|¨))?\.?$/i, BAL_H=/^solde$/i;
+// fallbackYear : une année, ou une fonction mois → année (dates sans année, ex. « 05.09 » au Crédit Agricole)
 function parseDateTxt(s,fallbackYear){
-  let m=s.match(/^(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?$/);
-  if(m){const y=m[3]?(+m[3]<100?2000+ +m[3]:+m[3]):fallbackYear;return valid(+m[1],+m[2],y);}
+  let m=s.match(/^(\d{1,2})[\/.\-](\d{1,2})(?:[\/.\-](\d{2,4}))?$/);
+  if(m){const y=m[3]?(+m[3]<100?2000+ +m[3]:+m[3]):typeof fallbackYear==="function"?fallbackYear(+m[2]):fallbackYear;return valid(+m[1],+m[2],y);}
   m=s.toLowerCase().match(/^(\d{1,2})\s+([a-zéû]+)\.?\s+(\d{4})$/);
   if(m&&MOIS[m[2]])return valid(+m[1],MOIS[m[2]],+m[3]);
   return null;
   function valid(d,mo,y){return mo>=1&&mo<=12&&d>=1&&d<=31?y+"-"+pad(mo)+"-"+pad(d):null;}
 }
 function amountOf(s){const m=s.trim().match(AMT_RE);if(!m)return null;const v=parseFloat(m[2].replace(/[.   ]/g,"")+"."+m[3]);return m[1]?-v:v;}
-function detectAccount(text){
-  if(/Compte d'épargne|Livret (A|Epargne|d'épargne|Jeune|LDDS)|LIVRET D'EPARGNE POPULAIRE\b(?!.*Débit)/i.test(text.slice(0,3000))&&/Compte d'épargne/i.test(text))return"Livret";
-  if(/Revolut Bank|Revolut France/i.test(text))return"Revolut";
+// d'après l'en-tête du relevé (avant le tableau), pas les libellés des opérations
+function detectAccount(head){
+  if(/Revolut/i.test(head))return"Revolut";
+  if(/Compte d'épargne|Compte sur livret|\bLivret\b|\bLDDS?\b|\bLEP\b|\bCEL\b|\bPEL\b/i.test(head))return"Livret";
   return"Compte courant";
 }
 function cleanLabel(s){
-  return s.replace(/\b(CARTE|AVOIR|TDF EMIS VIA CB)\s+\d{2}\/\d{2}\/\d{2}\b/gi,"").replace(/\bCB\*\d+\b/gi,"").replace(/^\s*(VIR(EMENT)?\s+(SEPA|INST)|VIR|PRLV SEPA|PRLV)\b/i,"")
+  return s.replace(/^\s*(PAIEMENT PAR CARTE|PAIEMENT CB|ACHAT CB|CB)\s+(X\d{4}\s+)?/i,"").replace(/\s+\d{2}[\/.]\d{2}(?:[\/.]\d{2,4})?\s*$/,"").replace(/\b(CARTE|AVOIR|TDF EMIS VIA CB)\s+\d{2}\/\d{2}\/\d{2}\b/gi,"").replace(/\bCB\*\d+\b/gi,"").replace(/^\s*(VIREMENT EN VOTRE FAVEUR|VIR(EMENT)?\s+(SEPA|INST)|VIREMENT|VIR|PRLV SEPA|PRLV|PRELEVEMENT|PRÉLÈVEMENT)\b/i,"")
     .replace(/\s+\d+,?\d*\s*$/,"").replace(/\s+/g," ").trim().slice(0,60)||"Opération";
 }
 /* lines : [{page,y,items:[{s,x,r}]}] triées ; renvoie les opérations du relevé */
 function parseStatement(lines,fallbackYear){
   const text=lines.map(l=>l.items.map(i=>i.s).join(" ")).join("\n");
-  const account=detectAccount(text);
+  const hi=lines.findIndex(l=>l.items.some(i=>OUT_H.test(i.s.trim()))&&l.items.some(i=>IN_H.test(i.s.trim())));
+  const account=detectAccount(lines.slice(0,hi<0?40:hi).map(l=>l.items.map(i=>i.s).join(" ")).join("\n"));
+  // fin de période du relevé, pour dater les opérations écrites sans année
+  const pm=text.match(/(?:au|jusqu'au|arrêté au)\s+(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/i);
+  const endY=pm?+pm[3]:(typeof fallbackYear==="number"?fallbackYear:new Date().getFullYear()),endM=pm?+pm[2]:12;
+  const yearOf=mo=>mo>endM+1?endY-1:endY;
   let cols=null;const out=[];let cur=null;
   for(const ln of lines){
-    const its=ln.items;if(!its.length)continue;
+    const its=mergeAmounts(ln.items);if(!its.length)continue;
     const joined=its.map(i=>i.s).join(" ");
     if(/^(Renvoy|Date de début|Transactions (en attente|annulées))/i.test(joined)){cols=null;cur=null;continue;} // opérations annulées/renvoyées : ignorées
     const oh=its.find(i=>OUT_H.test(i.s.trim())),ih=its.find(i=>IN_H.test(i.s.trim()));
     if(oh&&ih){const bh=its.find(i=>BAL_H.test(i.s.trim()));cols={out:oh,in:ih,bal:bh||null};cur=null;continue;}
-    const date=parseDateTxt(its[0].s.trim(),fallbackYear);
-    if(date&&cols&&!/SOLDE AU|NOUVEAU SOLDE|SOLDE DE CL/i.test(joined)){
+    const date=parseDateTxt(its[0].s.trim(),yearOf);
+    if(date&&cols&&!/SOLDE AU|NOUVEAU SOLDE|ANCIEN SOLDE|SOLDE DE CL|SOLDE CR[ÉE]DITEUR|SOLDE D[ÉE]BITEUR|TOTAL DES OP/i.test(joined)){
       let amt=null,dir=null;const labelParts=[];
       its.slice(1).forEach(i=>{
         const v=amountOf(i.s);
         if(v!=null){const c=nearestCol(i,cols);if(c==="out"||c==="in"){amt=Math.abs(v);dir=v<0?"out":c;}return;}
-        if(parseDateTxt(i.s.trim(),fallbackYear))return; // date de valeur
+        if(parseDateTxt(i.s.trim(),yearOf))return; // date de valeur
         labelParts.push(i.s.trim());
       });
       if(amt){cur={date,raw:labelParts.join(" "),detail:[],amount:Math.round(amt*100)/100,dir,page:ln.page,y:ln.y};out.push(cur);}
@@ -823,6 +849,14 @@ function parseStatement(lines,fallbackYear){
     return{date:o.date,label,amount:o.amount,type,category:guessCat(up,type),account};
   });
 }
+// « 1 » + « 234,56 » écrits côte à côte = 1 234,56
+function mergeAmounts(items){
+  const out=[];
+  items.forEach(i=>{const p=out[out.length-1];
+    if(p&&/^[+\-−]?\d{1,3}$/.test(p.s.trim())&&/^\d{3}(?:[.\u00a0\u202f ]\d{3})*,\d{2}/.test(i.s.trim())&&i.x-p.r<6)out[out.length-1]={s:p.s.trim()+" "+i.s.trim(),x:p.x,r:i.r};
+    else out.push(i);});
+  return out;
+}
 function nearestCol(it,cols){
   const c=(it.x+it.r)/2;let best="far",bd=1e9;
   for(const k of["out","in","bal"]){const h=cols[k];if(!h)continue;const d=Math.min(Math.abs(it.x-h.x),Math.abs(it.r-h.r),Math.abs(c-(h.x+h.r)/2));if(d<bd){bd=d;best=k;}}
@@ -830,7 +864,7 @@ function nearestCol(it,cols){
 }
 function guessCat(up,type){
   if(type==="Virement interne")return"Virement interne";
-  if(type==="Revenu"){if(/FRAIS PRO/.test(up))return"Remboursement";if(/SALAIRE|\bPAIE\b|GROUPEMENT D'EMPLOYEURS|JDA|HANDBALL|UNIVERSIT/.test(up))return"Salaire";if(/URSSAF|CLIENT|FACTURE/.test(up))return"Auto-entreprise";if(/\bCAF\b|APL|PRIME|ALLOC/.test(up))return"Aides (APL/prime)";if(/REMBOURS|AVOIR|^REFUND/.test(up))return"Remboursement";return"Autre revenu";}
+  if(type==="Revenu"){if(/FRAIS PRO/.test(up))return"Remboursement";if(/SALAIRE|\bPAIE\b|RETRAITE|PENSION|CARSAT|AGIRC|ARRCO|GROUPEMENT D'EMPLOYEURS|JDA|HANDBALL|UNIVERSIT/.test(up))return"Salaire";if(/URSSAF|CLIENT|FACTURE/.test(up))return"Auto-entreprise";if(/\bCAF\b|APL|PRIME|ALLOC/.test(up))return"Aides (APL/prime)";if(/REMBOURS|AVOIR|^REFUND/.test(up))return"Remboursement";return"Autre revenu";}
   const map=[[/CARREFOUR|LECLERC|LIDL|AUCHAN|MONOPRIX|MONOP|INTERMARCHE|CASINO|FRANPRIX|SUPER U|U EXPRESS|PICARD|BIOCOOP|ALDI|MARCHE PLUS|NESPRESSO|MAXICOFFEE|GRAIN DE CASSIS|SELECTA/,"Alimentation"],[/UBER EATS|DELIVEROO|RESTAU|MCDO|KFC|BURGER|BAR |CAFE|CAFÉ|BRASSERIE|BOULANGERIE|PIZZ|SUSHI|SAKANA|IZLY|AREAS|VITA AL DENTE/,"Restau & sorties"],[/BOOKING|HOTEL|HÔTEL|IBIS|EDREAMS|AIRBNB|GETYOURGUIDE|RYANAIR|EASYJET|AIR FRANCE/,"Voyages"],[/SNCF|OUIGO|TGV|TER |UBER|BLABLA|ESSENCE|TOTAL|STATION|PARKING|VOIRIE|DIVIA|MOBILIT|MÉTROPOLE|METROPOLE|\bSPL\b|NAVIGO|RATP|TRAINLINE|TRANSDEV|ULYS|PEAGE|PÉAGE|\bTAN\b|\bTAM\b/,"Transport"],[/NETFLIX|SPOTIFY|DEEZER|CANAL|DISNEY|YOUTUBE|ABONNEMENT|APPLE\.COM|ICLOUD|GOOGLE|FREE MOBILE|ORANGE|SFR|BOUYGUES|SOSH/,"Abonnements"],[/LOYER|AGENCE|IMMO|ORPI|DEVOSNE|EDF|ENGIE|VEOLIA/,"Logement"],[/PHARMA|DOCTEUR|MEDECIN|MUTUELLE|OPTIC|DENTAIRE|LABO|HOPITAL|IHERB/,"Santé"],[/DECATHLON|FITNESS|BASIC ?FIT|KLUBE|SALLE DE SPORT/,"Sport"],[/ZARA|H&M|AMAZON|FNAC|ZALANDO|NIKE|ADIDAS|SHEIN|VINTED|UNIQLO|KIABI|AYBL|BARBER|IKEA|BOULANGER\b/,"Shopping"],[/RETRAIT|DAB|DISTRIB/,"Retrait cash"]];
   for(const[re,c]of map)if(re.test(up))return c;return"Autre";
 }
