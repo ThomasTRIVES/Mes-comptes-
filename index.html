@@ -210,6 +210,11 @@ main{padding-block:16px 40px}
 .acct-grid input{font:inherit;font-size:.88rem;color:var(--ink);background:var(--panel-2);border:1px solid var(--line-2);border-radius:9px;padding:7px 9px;width:100%;min-width:0}
 .acct-card .btn.danger{margin-top:8px;justify-content:center}
 
+.edit-nav{display:flex;align-items:center;gap:6px;margin-left:auto;margin-right:8px}
+.edit-nav .icon-btn{width:34px;height:34px;font-size:1.2rem}
+.edit-nav .icon-btn:disabled{opacity:.35;cursor:default}
+.nav-pos{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums;min-width:52px;text-align:center}
+
 /* mouvements */
 .moves{grid-area:moves;display:flex;flex-direction:column;min-height:0}
 @media(min-width:1181px){.moves{max-height:calc(100vh - 100px);position:sticky;top:calc(env(safe-area-inset-top,0px) + 78px);align-self:start}}
@@ -791,12 +796,14 @@ function renderSubs(){
   if(cut>0){sv.appendChild(document.createElement("br"));const st=el("strong",null,"En résiliant : "+money(cut*12)+" économisés par an");sv.appendChild(st);sv.appendChild(document.createTextNode(" ("+money(cut,true)+" / mois)."));}
   body.appendChild(sv);
 }
+let listIds=[];
 function renderList(tx){
   const list=$("#list");list.innerHTML="";
   const rows=tx.filter(t=>(fCat==="all"||catKey(t)===fCat)&&(fType==="all"||t.type===fType||(fType==="need"&&t.type==="Dépense"&&NEED[t.need]))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   $("#movesSub").textContent=rows.length?rows.length+" opération(s) · "+periodLabel():periodLabel();
   if(!rows.length){list.appendChild(emptyBlock("Aucun mouvement","Change la période ou les filtres, ou ajoute une opération."));return;}
   let lastM="";
+  listIds=rows.filter(t=>!t.demo).map(t=>t.id);
   rows.forEach(t=>{const m=(t.date||"").slice(0,7);if(range!==1&&m!==lastM){list.appendChild(el("div","day",MONTHS[+m.slice(5)-1]+" "+m.slice(0,4)));lastM=m;}list.appendChild(mvRow(t));});
 }
 function mvRow(t){
@@ -851,29 +858,50 @@ function txForm(host,existing,done){
   const msg=el("div","err");msg.hidden=true;host.appendChild(msg);
   const actions=el("div","row-actions");
   const save=el("button",existing?"btn primary":"btn outline",existing?"Enregistrer":"Ajouter");save.type="button";save.style.flex="1";save.style.justifyContent="center";
-  save.onclick=()=>{
+  // enregistre ; avec nav=true (flèches), ne ferme pas la fenêtre et ne réécrit rien si rien n'a changé
+  const doSave=nav=>{
     const amount=parseFloat(String(ai.value).replace(/\s/g,"").replace(",","."));
-    if(!(amount>0)){msg.className="err";msg.textContent="Entre un montant supérieur à 0.";msg.hidden=false;ai.focus();return;}
+    if(!(amount>0)){msg.className="err";msg.textContent="Entre un montant supérieur à 0.";msg.hidden=false;ai.focus();return false;}
     const date=di.value||todayISO();
     const rec={date,account:as.value,type,category:cat,label:li.value.trim()||cat,amount:Math.round(amount*100)/100,need:type==="Dépense"&&need?need:undefined,owner:oi.value.trim()||undefined};
-    if(existing){const ix=state.tx.findIndex(x=>x.id===existing.id);if(ix>=0)state.tx[ix]={...state.tx[ix],...rec};}
+    if(existing){const ix=state.tx.findIndex(x=>x.id===existing.id),cur=ix>=0?state.tx[ix]:null;
+      const same=cur&&Object.keys(rec).every(k=>(rec[k]??"")===(cur[k]??""));
+      if(same){if(!nav&&done)done();return true;}
+      if(ix>=0)state.tx[ix]={...cur,...rec};}
     else state.tx.push({id:uid_(),...rec});
     if(demo){demo=false;setStatus("");}
-    viewMonth=date.slice(0,7);persist();render();
+    if(!existing||!inRange(date))viewMonth=date.slice(0,7);persist();render();
+    if(nav)return true;
     if(done)done();else{ai.value="";li.value="";need="";[...ns.children].forEach(c=>c.setAttribute("aria-pressed",c.dataset.v===""));msg.className="ok";msg.textContent="Ajouté : "+rec.category+" "+fmt(rec.type==="Dépense"?-rec.amount:rec.amount,true);msg.hidden=false;ai.focus();}
   };
+  save.onclick=()=>doSave(false);
   ai.addEventListener("keydown",e=>{if(e.key==="Enter")save.click();});li.addEventListener("keydown",e=>{if(e.key==="Enter")save.click();});
   actions.appendChild(save);
   if(existing){const del=el("button","btn danger","Supprimer");del.type="button";let armed=false;
     del.onclick=()=>{if(!armed){armed=true;del.textContent="Confirmer la suppression";return;}state.tx=state.tx.filter(x=>x.id!==existing.id);persist();render();done();};actions.appendChild(del);}
   host.appendChild(actions);
+  return{save:()=>doSave(true)};
 }
 
 /* ---- modale ---- */
 function closeModal(){$("#modalHost").innerHTML="";}
 function modal(title){const scrim=el("div","scrim"),m=el("div","modal"),h=el("div","modal-h");m.setAttribute("role","dialog");m.setAttribute("aria-label",title);h.appendChild(el("h3",null,title));const x=el("button","icon-btn","✕");x.setAttribute("aria-label","Fermer");x.onclick=closeModal;h.appendChild(x);const b=el("div","modal-b");m.appendChild(h);m.appendChild(b);scrim.appendChild(m);scrim.addEventListener("click",e=>{if(e.target===scrim)closeModal();});$("#modalHost").innerHTML="";$("#modalHost").appendChild(scrim);return b;}
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
-function openEdit(t){txForm(modal("Modifier le mouvement"),t,closeModal);}
+// flèches ‹ › : mouvement précédent / suivant dans l'ordre de la liste affichée (on enregistre au passage)
+function openEdit(t,ids){
+  ids=ids||listIds.slice();const i=ids.indexOf(t.id);
+  const b=modal("Modifier le mouvement"),f=txForm(b,t,closeModal);
+  if(i<0||ids.length<2)return;
+  const h=b.parentElement.querySelector(".modal-h"),nav=el("div","edit-nav");
+  const prev=el("button","icon-btn","‹"),next=el("button","icon-btn","›"),pos=el("span","nav-pos",(i+1)+" / "+ids.length);
+  prev.id="prevMv";next.id="nextMv";prev.setAttribute("aria-label","Mouvement précédent");next.setAttribute("aria-label","Mouvement suivant");prev.title="Précédent";next.title="Suivant";
+  prev.disabled=i===0;next.disabled=i===ids.length-1;
+  const go=d=>{const id=ids[i+d];if(!id||!f.save())return;const nt=state.tx.find(x=>x.id===id);if(nt)openEdit(nt,ids);};
+  prev.onclick=()=>go(-1);next.onclick=()=>go(1);
+  nav.appendChild(prev);nav.appendChild(pos);nav.appendChild(next);h.insertBefore(nav,h.lastChild);
+}
+// flèches du clavier ← → dans la fenêtre de modification (hors champs de saisie)
+document.addEventListener("keydown",e=>{if(/^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName))return;const btn=e.key==="ArrowLeft"?$("#prevMv"):e.key==="ArrowRight"?$("#nextMv"):null;if(btn&&!btn.disabled){e.preventDefault();btn.click();}});
 function openCats(){
   const b=modal("Mes catégories");
   b.appendChild(el("p","note","Dépenses et revenus ont chacun leurs catégories ; un même nom peut exister des deux côtés (ex. « Remboursement »). Tu peux renommer ou supprimer celles que tu as créées : leurs opérations suivent le nouveau nom, ou passent en « Autre » / « Autre revenu » si tu la supprimes."));
