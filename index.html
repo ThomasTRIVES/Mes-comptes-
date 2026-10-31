@@ -194,6 +194,14 @@ main{padding-block:16px 40px}
 .seg.need{flex-wrap:wrap}.seg.need button{flex:1 1 auto;white-space:nowrap}
 .empty span{display:block}
 
+/* catégories perso */
+.new-cat{border:1px dashed var(--line-2)!important;background:transparent!important;color:var(--accent)!important}
+.chip-input{font:inherit;font-size:.8rem;color:var(--ink);background:var(--panel-2);border:1px solid var(--accent);border-radius:20px;padding:4px 10px;min-width:0;width:auto;flex:1 1 140px}
+.chip-fixed{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:3px 9px;font-size:.74rem}
+.cat-row{display:flex;gap:8px;align-items:center}
+.cat-row input{flex:1;min-width:0;font:inherit;font-size:.9rem;color:var(--ink);background:var(--panel-2);border:1px solid var(--line-2);border-radius:9px;padding:8px 10px}
+.cat-n{font-size:.72rem;color:var(--faint);white-space:nowrap}
+
 /* mouvements */
 .moves{grid-area:moves;display:flex;flex-direction:column;min-height:0}
 @media(min-width:1181px){.moves{max-height:calc(100vh - 100px);position:sticky;top:calc(env(safe-area-inset-top,0px) + 78px);align-self:start}}
@@ -310,7 +318,7 @@ main{padding-block:16px 40px}
     </div>
 
     <section class="card donut">
-      <div class="card-h"><div><div class="eyebrow">Dépenses par catégorie</div><div class="sub" id="donutSub"></div></div><button class="link-btn" id="clearCat" hidden>Toutes</button></div>
+      <div class="card-h"><div><div class="eyebrow">Dépenses par catégorie</div><div class="sub" id="donutSub"></div></div><div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end"><button class="link-btn" id="clearCat" hidden>Toutes</button><button class="link-btn" id="catsBtn">Mes catégories</button></div></div>
       <div class="donut-body" id="donutBody"></div>
     </section>
 
@@ -372,7 +380,32 @@ const EXP_CATS=["Alimentation","Logement","Transport","Abonnements","Restau & so
 const INC_CATS=["Salaire","Auto-entreprise","Aides (APL/prime)","Remboursement","Autre revenu"];
 const ACCOUNTS=["Compte courant","Revolut","Livret","Espèces","Autre"];
 const TYPES=["Dépense","Revenu","Virement interne"];
-const ALL_CATS=EXP_CATS.concat(INC_CATS,["Virement interne"]);
+// catégories ajoutées par l'utilisateur (state.cats.exp / state.cats.inc), rangées avant « Autre »
+const catsOf=k=>{const c=(state.cats||{})[k];return Array.isArray(c)?c:[];};
+const expCats=()=>EXP_CATS.slice(0,-1).concat(catsOf("exp"),["Autre"]);
+const incCats=()=>INC_CATS.slice(0,-1).concat(catsOf("inc"),["Autre revenu"]);
+const allCats=()=>expCats().concat(incCats(),["Virement interne"]);
+const cleanCat=n=>String(n||"").replace(/\s+/g," ").trim().slice(0,40);
+// ajoute une catégorie (ou renvoie celle qui existe déjà sous ce nom)
+function addCat(kind,name){
+  name=cleanCat(name);if(!name||/^virement interne$/i.test(name))return null;
+  const hit=allCats().find(c=>c.toLowerCase()===name.toLowerCase());if(hit)return hit;
+  state.cats=state.cats||{};state.cats[kind]=catsOf(kind).concat([name]);persist();return name;
+}
+function renameCat(kind,from,to){
+  to=cleanCat(to);if(!to||to===from)return from;
+  if(allCats().some(c=>c.toLowerCase()===to.toLowerCase()&&c!==from))return from;
+  state.cats[kind]=catsOf(kind).map(c=>c===from?to:c);
+  state.tx.forEach(t=>{if(t.category===from)t.category=to;});
+  if(state.budgets[from]!=null){state.budgets[to]=state.budgets[from];delete state.budgets[from];}
+  if(fCat===from)fCat=to;persist();return to;
+}
+function removeCat(kind,name){
+  const fb=kind==="inc"?"Autre revenu":"Autre";
+  state.cats[kind]=catsOf(kind).filter(c=>c!==name);
+  state.tx.forEach(t=>{if(t.category===name)t.category=fb;});
+  delete state.budgets[name];if(fCat===name)fCat="all";persist();
+}
 const RAMP=8;
 const uid_=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
 const money=(n,cents)=>Math.abs(n).toLocaleString("fr-FR",{minimumFractionDigits:cents?2:0,maximumFractionDigits:cents?2:0})+" €";
@@ -411,7 +444,7 @@ const LS="mc_data_v1";
 function loadLocal(){try{const r=localStorage.getItem(LS);if(r)return JSON.parse(r);}catch(e){}return null;}
 function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(state));}catch(e){}}
 function storeDocs(){
-  const docs={settings:JSON.stringify({budgets:state.budgets,subs:state.subs||{},me:state.me||""})};
+  const docs={settings:JSON.stringify({budgets:state.budgets,subs:state.subs||{},me:state.me||"",cats:state.cats||{}})};
   const by={};state.tx.forEach(t=>{const k="m-"+(t.date||"").slice(0,7);(by[k]=by[k]||[]).push(t);});
   Object.keys(by).forEach(k=>{docs[k]=JSON.stringify({tx:by[k]});});
   return docs;
@@ -441,18 +474,18 @@ function persist(){
   });
 }
 function applyDocs(rows){
-  let tx=[],budgets={},subs={},me="";
+  let tx=[],budgets={},subs={},me="",cats={};
   Object.keys(written).forEach(k=>delete written[k]);
   rows.forEach(r=>{const v=r.data||{};
-    if(r.doc_id==="settings"){budgets=v.budgets||{};subs=v.subs||{};me=v.me||"";written.settings=JSON.stringify({budgets,subs,me});}
+    if(r.doc_id==="settings"){budgets=v.budgets||{};subs=v.subs||{};me=v.me||"";cats=v.cats||{};written.settings=JSON.stringify({budgets,subs,me,cats});}
     else if(r.doc_id.startsWith("m-")&&Array.isArray(v.tx)){tx=tx.concat(v.tx);written[r.doc_id]=JSON.stringify({tx:v.tx});}
   });
   const first=!loaded;loaded=true;
   // tout premier lancement sur un espace vide : on envoie ce que cet appareil avait déjà
-  if(first&&!rows.length){const local=loadLocal();if(local&&Array.isArray(local.tx)&&local.tx.length){state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||""};demo=false;persist();setStatus("");render();return;}}
+  if(first&&!rows.length){const local=loadLocal();if(local&&Array.isArray(local.tx)&&local.tx.length){state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||"",cats:local.cats||{}};demo=false;persist();setStatus("");render();return;}}
   // modifications faites hors ligne sur cet appareil : elles partent maintenant
   if(unsynced){unsynced=false;persist();return;}
-  state={tx,budgets,subs,me};demo=!tx.length;saveLocal();setStatus("");render();
+  state={tx,budgets,subs,me,cats};demo=!tx.length;saveLocal();setStatus("");render();
 }
 async function pull(){
   if(!uid)return;
@@ -473,7 +506,7 @@ async function startSession(user){
 }
 async function boot(){
   // affichage immédiat avec la copie de cet appareil ; la version synchronisée prend le relais
-  const local=loadLocal();if(local&&Array.isArray(local.tx)&&local.tx.length){state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||""};demo=false;render();}
+  const local=loadLocal();if(local&&Array.isArray(local.tx)&&local.tx.length){state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||"",cats:local.cats||{}};demo=false;render();}
   if(!window.supabase){fallbackLocal("La synchro n'a pas pu se charger (hors ligne ?) : données de cet appareil.");return;}
   const cfg=sbConfig();if(!cfg){showSetup();return;}
   try{sb=supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"mc_auth"}});}catch(e){showSetup("Adresse ou clé invalide.");return;}
@@ -553,11 +586,11 @@ function restoreCsv(text){
   lines.slice(1).forEach(l=>{const[date,type,category,label,account,m,owner]=cells(l);const amount=Math.abs(parseFloat(String(m).replace(/\s/g,"").replace(",",".")));
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!(amount>0)||!TYPES.includes(type))return;
     const r={id:uid_(),date,type,category:category||"Autre",label:label||category,account:account||"Compte courant",amount:Math.round(amount*100)/100,owner:owner||undefined};
-    const k=key(r);if(have[k]>0){have[k]--;return;}state.tx.push(r);n++;});
+    const k=key(r);if(have[k]>0){have[k]--;return;}if(type!=="Virement interne"&&!allCats().includes(r.category))addCat(type==="Revenu"?"inc":"exp",r.category);state.tx.push(r);n++;});
   if(n){demo=false;setStatus("");persist();render();}
   return n;
 }
-function fallbackLocal(msg){loaded=true;const local=loadLocal();if(local&&Array.isArray(local.tx))state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||""};demo=!state.tx.length;setStatus(msg);render();}
+function fallbackLocal(msg){loaded=true;const local=loadLocal();if(local&&Array.isArray(local.tx))state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||"",cats:local.cats||{}};demo=!state.tx.length;setStatus(msg);render();}
 function setStatus(t){const s=$("#statusLine");s.textContent="";if(demo&&loaded&&!noDemo){s.appendChild(el("span","pill","Aperçu"));s.appendChild(document.createTextNode(" Données d'exemple, pas les tiennes. Elles disparaissent dès ta première opération."+(t?" "+t:"")+" "));const h=el("button","link-btn","Masquer les exemples");h.onclick=hideDemo;s.appendChild(h);s.hidden=false;return;}s.textContent=t||"";s.hidden=!t;}
 
 /* ---- aperçu (jamais enregistré) ---- */
@@ -590,7 +623,7 @@ function periodLabel(){const[s,e]=rangeBounds();if(range===1)return MONTHS[e%12]
 
 /* ---- rendu ---- */
 function fillFilters(){
-  const cs=$("#catSel");if(!cs.dataset.ready){cs.innerHTML='<option value="all">Catégories</option>'+ALL_CATS.map(c=>`<option value="${c}">${c}</option>`).join("");cs.dataset.ready="1";}
+  const cs=$("#catSel");cs.innerHTML="";const co=el("option",null,"Catégories");co.value="all";cs.appendChild(co);allCats().forEach(c=>{const o=el("option",null,c);o.value=c;cs.appendChild(o);});
   const opt=(v,l)=>{const o=el("option",null,l);o.value=v;return o;};
   const accs=accountsList();if(fAcc!=="all"&&!accs.includes(fAcc))fAcc="all";
   const as=$("#accSel");as.innerHTML="";as.appendChild(opt("all","Comptes"));accs.forEach(c=>as.appendChild(opt(c,c)));
@@ -612,6 +645,7 @@ function render(){
   $("#kRevSub").textContent=periodLabel();
   $("#kDepSub").textContent=tx.filter(t=>t.type==="Dépense").length+" dépense(s)";
   $("#kSavSub").textContent=(rev>0?"taux d'épargne "+Math.round(sav/rev*100)+" %":"");
+  if(addFormRefresh&&!document.querySelector("#addForm .chip-input"))addFormRefresh();
   renderDonut(tx,dep);renderBars();renderBudgets();renderAvoid(tx,dep);renderSubs();renderList(tx);
 }
 function renderDonut(tx,dep){
@@ -651,7 +685,7 @@ function renderBudgets(){
   const bud=budgets(),list=$("#budList");list.innerHTML="";
   $("#budSub").textContent=MONTHS[+viewMonth.slice(5)-1]+" · se remet à zéro chaque mois";
   const spent={};baseTx().filter(t=>t.type==="Dépense"&&inScope(t)&&(t.date||"").startsWith(viewMonth)).forEach(t=>{spent[t.category]=(spent[t.category]||0)+(+t.amount||0);});
-  const names=EXP_CATS.filter(c=>bud[c]>0);
+  const names=expCats().filter(c=>bud[c]>0);
   $("#editBud").hidden=showDemo();
   if(!names.length){const w=emptyBlock("Aucun budget défini","Fixe un plafond mensuel par catégorie pour voir où tu en es.");if(!showDemo()){const b=el("button","btn outline","Définir mes budgets");b.style.marginTop="10px";b.onclick=openBudgets;w.appendChild(b);}list.appendChild(w);return;}
   names.sort((a,b)=>(spent[b]||0)/bud[b]-(spent[a]||0)/bud[a]).forEach(n=>{
@@ -721,6 +755,7 @@ function mvRow(t){
 function emptyBlock(h,p){const w=el("div","empty");w.appendChild(el("strong",null,h));w.appendChild(el("span",null,p));return w;}
 
 /* ---- formulaire (saisie à gauche + édition en modale) ---- */
+let addFormRefresh=null;
 function txForm(host,existing,done){
   host.innerHTML="";
   const t=existing||{type:"Dépense",date:todayISO(),amount:"",label:"",category:"Alimentation",account:"Compte courant"};
@@ -736,9 +771,15 @@ function txForm(host,existing,done){
   [["","Nécessaire"],["superflu","Pas nécessaire"],["eviter","À éviter"]].forEach(([v,lab])=>{const bt=el("button",v||null,lab);bt.type="button";bt.dataset.v=v;bt.setAttribute("aria-pressed",v===need);bt.onclick=()=>{need=v;[...ns.children].forEach(c=>c.setAttribute("aria-pressed",c.dataset.v===need));};ns.appendChild(bt);});
   needWrap.appendChild(ns);host.appendChild(needWrap);
   function fillChips(){chips.innerHTML="";trNote.hidden=type!=="Virement interne";chips.hidden=type==="Virement interne";needWrap.hidden=type!=="Dépense";
-    const list=type==="Revenu"?INC_CATS:EXP_CATS;if(type==="Virement interne"){cat="Virement interne";return;}if(!list.includes(cat))cat=list[0];
-    list.forEach(c=>{const b=el("button",null,c);b.type="button";b.setAttribute("aria-pressed",c===cat);b.onclick=()=>{cat=c;[...chips.children].forEach(x=>x.setAttribute("aria-pressed",x.textContent===c));};chips.appendChild(b);});}
-  fillChips();
+    const list=type==="Revenu"?incCats():expCats();if(type==="Virement interne"){cat="Virement interne";return;}if(!list.includes(cat))cat=list[0];
+    list.forEach(c=>{const b=el("button",null,c);b.type="button";b.setAttribute("aria-pressed",c===cat);b.onclick=()=>{cat=c;[...chips.children].forEach(x=>x.setAttribute("aria-pressed",x.textContent===c));};chips.appendChild(b);});
+    // nouvelle catégorie tapée directement
+    const nb=el("button","new-cat","＋ Nouvelle");nb.type="button";
+    nb.onclick=()=>{const i=el("input","chip-input");i.placeholder="Nom de la catégorie";i.setAttribute("aria-label","Nouvelle catégorie");nb.replaceWith(i);i.focus();
+      const ok=()=>{const n=addCat(type==="Revenu"?"inc":"exp",i.value);if(n)cat=n;fillChips();if(n)render();};
+      i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();ok();}if(e.key==="Escape")fillChips();};i.onblur=()=>{if(i.value.trim())ok();else fillChips();};};
+    chips.appendChild(nb);}
+  fillChips();if(!existing)addFormRefresh=fillChips; // le formulaire de gauche suit les catégories ajoutées
   const two=el("div","two");
   const fd=el("label","fld");fd.appendChild(el("span",null,"Date"));const di=el("input");di.type="date";di.id=existing?"editDate":"addDate";di.value=t.date||todayISO();fd.appendChild(di);
   const fa=el("label","fld");fa.appendChild(el("span",null,"Compte"));const as=el("select");as.id=existing?"editAcc":"addAcc";accountsList().forEach(a=>{const o=el("option",null,a);if(a===t.account)o.selected=true;as.appendChild(o);});fa.appendChild(as);
@@ -774,11 +815,29 @@ function closeModal(){$("#modalHost").innerHTML="";}
 function modal(title){const scrim=el("div","scrim"),m=el("div","modal"),h=el("div","modal-h");m.setAttribute("role","dialog");m.setAttribute("aria-label",title);h.appendChild(el("h3",null,title));const x=el("button","icon-btn","✕");x.setAttribute("aria-label","Fermer");x.onclick=closeModal;h.appendChild(x);const b=el("div","modal-b");m.appendChild(h);m.appendChild(b);scrim.appendChild(m);scrim.addEventListener("click",e=>{if(e.target===scrim)closeModal();});$("#modalHost").innerHTML="";$("#modalHost").appendChild(scrim);return b;}
 document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
 function openEdit(t){txForm(modal("Modifier le mouvement"),t,closeModal);}
+function openCats(){
+  const b=modal("Mes catégories");
+  b.appendChild(el("p","note","Ajoute tes propres catégories de dépenses et de revenus. Tu peux renommer ou supprimer celles que tu as créées : leurs opérations suivent le nouveau nom, ou passent en « Autre » si tu la supprimes."));
+  [["exp","Dépenses",EXP_CATS],["inc","Revenus",INC_CATS]].forEach(([k,title,base])=>{
+    const sec=el("div","imports");sec.appendChild(el("div","eyebrow",title));
+    const fixed=el("div","chips");base.forEach(c=>{const x=el("span","chip-fixed",c);fixed.appendChild(x);});sec.appendChild(fixed);
+    const mine=el("div");mine.style.cssText="display:flex;flex-direction:column;gap:6px;margin-top:8px";
+    const draw=()=>{mine.innerHTML="";catsOf(k).forEach(c=>{const row=el("div","cat-row");const i=el("input");i.value=c;i.setAttribute("aria-label","Renommer "+c);
+        i.onchange=()=>{const n=renameCat(k,c,i.value);i.value=n;draw();render();};
+        const used=state.tx.filter(t=>t.category===c).length;const n=el("span","cat-n",used?used+" op.":"");
+        const del=el("button","x","✕");del.title="Supprimer";del.setAttribute("aria-label","Supprimer "+c);let armed=false;
+        del.onclick=()=>{if(used&&!armed){armed=true;del.textContent="Sûr ?";del.style.width="auto";return;}removeCat(k,c);draw();render();};
+        row.appendChild(i);row.appendChild(n);row.appendChild(del);mine.appendChild(row);});};
+    draw();sec.appendChild(mine);
+    const add=el("div","cat-row");const ni=el("input");ni.id="newCat-"+k;ni.placeholder=k==="exp"?"Nouvelle catégorie de dépense":"Nouvelle catégorie de revenu";
+    const ab=el("button","btn","Ajouter");ab.type="button";const go=()=>{if(addCat(k,ni.value)){ni.value="";draw();render();}};ab.onclick=go;ni.onkeydown=e=>{if(e.key==="Enter")go();};
+    add.appendChild(ni);add.appendChild(ab);sec.appendChild(add);b.appendChild(sec);});
+}
 function openBudgets(){
   const b=modal("Budgets mensuels");
   b.appendChild(el("p","note","Plafond par mois pour chaque catégorie de dépense. Laisse vide pour ne pas suivre une catégorie."));
   const g=el("div","bud-edit"),inputs={};
-  EXP_CATS.forEach(c=>{const id="bud-"+c.replace(/[^a-z]/gi,"");const l=el("label",null,c);l.htmlFor=id;const i=el("input");i.id=id;i.inputMode="decimal";i.placeholder="—";if(state.budgets[c]>0)i.value=state.budgets[c];inputs[c]=i;g.appendChild(l);g.appendChild(i);});
+  expCats().forEach((c,ix)=>{const id="bud-"+ix;const l=el("label",null,c);l.htmlFor=id;const i=el("input");i.id=id;i.inputMode="decimal";i.placeholder="—";if(state.budgets[c]>0)i.value=state.budgets[c];inputs[c]=i;g.appendChild(l);g.appendChild(i);});
   b.appendChild(g);
   const s=el("button","btn primary","Enregistrer les budgets");s.style.justifyContent="center";
   s.onclick=()=>{const nb={};Object.entries(inputs).forEach(([c,i])=>{const v=parseFloat(String(i.value).replace(/\s/g,"").replace(",","."));if(v>0)nb[c]=Math.round(v*100)/100;});state.budgets=nb;persist();render();closeModal();};
@@ -1047,6 +1106,7 @@ async function extractPdfLines(file){
     rows.sort((a,b)=>b.y-a.y);rows.forEach(r=>r.items.sort((a,b)=>a.x-b.x));out.push(...rows);}
   return out;
 }
+let revFillers=[];
 function openImport(){
   const b=modal("Importer un relevé");
   if(!window.pdfjsLib)b.appendChild(el("p","err","Le lecteur PDF n'a pas pu se charger : seuls les fichiers CSV, Excel et OFX passeront."));
@@ -1083,10 +1143,11 @@ function openImport(){
       who.forEach((w,k)=>{const f=el("label","fld");f.appendChild(el("span",null,rows.filter(r=>r.owner===w).length+" opération(s) · "+[...new Set(rows.filter(r=>r.owner===w).map(r=>r.account))].join(", ")));
         const i=el("input");i.id="who"+k;i.value=w;i.oninput=()=>{items.forEach(o=>{if(o.owner0===w)o.owner=i.value.trim()||w;});};f.appendChild(i);box.appendChild(f);});
       review.appendChild(box);}
+    revFillers=[];
     const list=el("div","rev-list");const items=rows.map(r=>{const o={...r,owner0:r.owner,account:r.account||"Compte courant",keep:true};list.appendChild(revItem(o));return o;});
     review.appendChild(list);
     const add=el("button","btn primary","Ajouter les opérations");add.style.marginTop="12px";add.style.justifyContent="center";add.style.width="100%";
-    add.onclick=()=>{let n=0,last=null;const impAt=todayISO();items.forEach(o=>{if(o.keep){state.tx.push({id:uid_(),date:o.date,account:o.account,type:o.type,category:o.category,label:o.label,amount:o.amount,file:o.file,impAt,owner:o.owner||undefined});n++;if(!last||o.date>last)last=o.date;}});if(n){demo=false;setStatus("");if(last)viewMonth=last.slice(0,7);persist();render();}closeModal();};
+    add.onclick=()=>{let n=0,last=null;const impAt=todayISO();items.forEach(o=>{if(o.keep&&o.type!=="Virement interne"&&!allCats().includes(o.category))addCat(o.type==="Revenu"?"inc":"exp",o.category);});items.forEach(o=>{if(o.keep){state.tx.push({id:uid_(),date:o.date,account:o.account,type:o.type,category:o.category,label:o.label,amount:o.amount,file:o.file,impAt,owner:o.owner||undefined});n++;if(!last||o.date>last)last=o.date;}});if(n){demo=false;setStatus("");if(last)viewMonth=last.slice(0,7);persist();render();}closeModal();};
     review.appendChild(add);
   }
   function revItem(o){
@@ -1097,8 +1158,17 @@ function openImport(){
     const ctl=el("div","ctl"),tS=el("select"),cS=el("select"),aS=el("select");
     TYPES.forEach(tp=>{const op=el("option",null,tp);if(tp===o.type)op.selected=true;tS.appendChild(op);});
     [...new Set(accountsList().concat([o.account]))].forEach(ac=>{const op=el("option",null,ac);if(ac===o.account)op.selected=true;aS.appendChild(op);});
-    const fillC=()=>{cS.innerHTML="";(o.type==="Virement interne"?["Virement interne"]:o.type==="Revenu"?INC_CATS:EXP_CATS).forEach(c=>{const op=el("option",null,c);if(c===o.category)op.selected=true;cS.appendChild(op);});o.category=cS.value;};fillC();
-    tS.onchange=()=>{o.type=tS.value;paint();fillC();};cS.onchange=()=>{o.category=cS.value;};aS.onchange=()=>{o.account=aS.value;};
+    const fillC=()=>{cS.innerHTML="";const list=o.type==="Virement interne"?["Virement interne"]:o.type==="Revenu"?incCats():expCats();
+      if(o.category&&!list.includes(o.category)&&o.type!=="Virement interne")list.push(o.category);
+      list.forEach(c=>{const op=el("option",null,c);op.value=c;if(c===o.category)op.selected=true;cS.appendChild(op);});
+      if(o.type!=="Virement interne"){const nw=el("option",null,"＋ Nouvelle catégorie…");nw.value="__new";cS.appendChild(nw);}
+      o.category=cS.value==="__new"?list[0]:cS.value;};fillC();revFillers.push(fillC);
+    // champ vide pour taper une catégorie ; elle apparaît ensuite dans toutes les lignes
+    const newCat=()=>{const i=el("input","chip-input");i.placeholder=o.type==="Revenu"?"Nouvelle catégorie de revenu":"Nouvelle catégorie de dépense";i.setAttribute("aria-label","Nouvelle catégorie");
+      cS.hidden=true;cS.after(i);i.focus();let done=false;
+      const ok=()=>{if(done)return;done=true;const n=addCat(o.type==="Revenu"?"inc":"exp",i.value);i.remove();cS.hidden=false;if(n)o.category=n;revFillers.forEach(f=>f());};
+      i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();ok();}if(e.key==="Escape"){i.value="";ok();}};i.onblur=ok;};
+    tS.onchange=()=>{o.type=tS.value;paint();fillC();};cS.onchange=()=>{if(cS.value==="__new"){fillC();newCat();}else o.category=cS.value;};aS.onchange=()=>{o.account=aS.value;};
     [tS,cS,aS].forEach(s=>s.setAttribute("aria-label","Modifier"));
     ctl.appendChild(tS);ctl.appendChild(cS);ctl.appendChild(aS);it.appendChild(ctl);
     return it;
@@ -1133,10 +1203,10 @@ $("#wipeBtn").onclick=()=>{
   const b=modal("Tout effacer");
   b.appendChild(el("p","note","Toutes tes opérations, tes relevés importés et tes budgets seront supprimés, sur tous tes appareils. C'est définitif : exporte un CSV avant si tu veux garder une copie."));
   const go=el("button","btn danger","Oui, tout effacer");go.style.justifyContent="center";
-  go.onclick=()=>{state={tx:[],budgets:{},subs:{}};persist();demo=true;fCat="all";viewMonth=todayISO().slice(0,7);closeModal();hideDemo();setStatus("Tout est effacé. Tu repars de zéro.");};
+  go.onclick=()=>{state={tx:[],budgets:{},subs:{},cats:state.cats||{}};persist();demo=true;fCat="all";viewMonth=todayISO().slice(0,7);closeModal();hideDemo();setStatus("Tout est effacé. Tu repars de zéro.");};
   b.appendChild(go);
 };
-$("#acctBtn").onclick=openAccount;$("#editBud").onclick=openBudgets;$("#importBtn").onclick=openImport;$("#exportBtn").onclick=exportCsv;
+$("#acctBtn").onclick=openAccount;$("#editBud").onclick=openBudgets;$("#catsBtn").onclick=openCats;$("#importBtn").onclick=openImport;$("#exportBtn").onclick=exportCsv;
 $("#today").textContent=new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
 (function(){let t;try{t=localStorage.getItem("mc_theme");}catch(e){}if(t)document.documentElement.setAttribute("data-theme",t);
   $("#themeBtn").onclick=()=>{const cur=document.documentElement.getAttribute("data-theme");const light=cur?cur==="light":matchMedia("(prefers-color-scheme: light)").matches;const nv=light?"dark":"light";document.documentElement.setAttribute("data-theme",nv);try{localStorage.setItem("mc_theme",nv);}catch(e){}};})();
