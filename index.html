@@ -395,8 +395,10 @@ const ACCOUNTS=["Compte courant","Revolut","Livret","Espèces","Autre"];
 const TYPES=["Dépense","Revenu","Virement interne"];
 // catégories ajoutées par l'utilisateur (state.cats.exp / state.cats.inc), rangées avant « Autre »
 const catsOf=k=>{const c=(state.cats||{})[k];return Array.isArray(c)?c:[];};
-const expCats=()=>EXP_CATS.slice(0,-1).concat(catsOf("exp"),["Autre"]);
-const incCats=()=>INC_CATS.slice(0,-1).concat(catsOf("inc"),["Autre revenu"]);
+// ordre alphabétique partout (accents et majuscules ignorés)
+const byFr=(a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"});
+const expCats=()=>EXP_CATS.concat(catsOf("exp")).sort(byFr);
+const incCats=()=>INC_CATS.concat(catsOf("inc")).sort(byFr);
 const allCats=()=>expCats().concat(incCats(),["Virement interne"]);
 const cleanCat=n=>String(n||"").replace(/\s+/g," ").trim().slice(0,40);
 // dépenses et revenus ont chacun leurs catégories ; un même nom peut exister des deux côtés
@@ -683,7 +685,7 @@ function fillFilters(){
   const cs=$("#catSel");cs.innerHTML="";const co=el("option",null,"Catégories");co.value="all";cs.appendChild(co);
   [["D|","Dépenses","Dépense",expCats()],["R|","Revenus","Revenu",incCats()]].forEach(([pre,label,ty,list])=>{
     const extra=[...new Set(baseTx().filter(t=>t.type===ty&&!list.includes(t.category)).map(t=>t.category))];
-    const g=document.createElement("optgroup");g.label=label;list.concat(extra).forEach(c=>{const o=el("option",null,c);o.value=pre+c;g.appendChild(o);});cs.appendChild(g);});
+    const g=document.createElement("optgroup");g.label=label;list.concat(extra).sort(byFr).forEach(c=>{const o=el("option",null,c);o.value=pre+c;g.appendChild(o);});cs.appendChild(g);});
   const vo=el("option",null,"Virement interne");vo.value="V|Virement interne";cs.appendChild(vo);
   if(fCat!=="all"&&!/^[DRV]\|/.test(fCat))fCat="all";
   const opt=(v,l)=>{const o=el("option",null,l);o.value=v;return o;};
@@ -837,7 +839,7 @@ function txForm(host,existing,done){
   [["","Nécessaire"],["superflu","Pas nécessaire"],["eviter","À éviter"]].forEach(([v,lab])=>{const bt=el("button",v||null,lab);bt.type="button";bt.dataset.v=v;bt.setAttribute("aria-pressed",v===need);bt.onclick=()=>{need=v;[...ns.children].forEach(c=>c.setAttribute("aria-pressed",c.dataset.v===need));};ns.appendChild(bt);});
   needWrap.appendChild(ns);host.appendChild(needWrap);
   function fillChips(){chips.innerHTML="";trNote.hidden=type!=="Virement interne";chips.hidden=type==="Virement interne";needWrap.hidden=type!=="Dépense";
-    const list=type==="Revenu"?incCats():expCats();if(type==="Virement interne"){cat="Virement interne";return;}if(!list.includes(cat))cat=list[0];
+    const list=type==="Revenu"?incCats():expCats();if(type==="Virement interne"){cat="Virement interne";return;}if(!list.includes(cat)){const d=type==="Revenu"?"Salaire":"Alimentation";cat=list.includes(d)?d:list[0];}
     list.forEach(c=>{const b=el("button",null,c);b.type="button";b.setAttribute("aria-pressed",c===cat);b.onclick=()=>{cat=c;[...chips.children].forEach(x=>x.setAttribute("aria-pressed",x.textContent===c));};chips.appendChild(b);});
     // nouvelle catégorie tapée directement
     const nb=el("button","new-cat","＋ Nouvelle");nb.type="button";
@@ -907,9 +909,9 @@ function openCats(){
   b.appendChild(el("p","note","Dépenses et revenus ont chacun leurs catégories ; un même nom peut exister des deux côtés (ex. « Remboursement »). Tu peux renommer ou supprimer celles que tu as créées : leurs opérations suivent le nouveau nom, ou passent en « Autre » / « Autre revenu » si tu la supprimes."));
   [["exp","Dépenses",EXP_CATS],["inc","Revenus",INC_CATS]].forEach(([k,title,base])=>{
     const sec=el("div","imports");sec.appendChild(el("div","eyebrow",title));
-    const fixed=el("div","chips");base.forEach(c=>{const x=el("span","chip-fixed",c);fixed.appendChild(x);});sec.appendChild(fixed);
+    const fixed=el("div","chips");base.slice().sort(byFr).forEach(c=>{const x=el("span","chip-fixed",c);fixed.appendChild(x);});sec.appendChild(fixed);
     const mine=el("div");mine.style.cssText="display:flex;flex-direction:column;gap:6px;margin-top:8px";
-    const draw=()=>{mine.innerHTML="";catsOf(k).forEach(c=>{const row=el("div","cat-row");const i=el("input");i.value=c;i.setAttribute("aria-label","Renommer "+c);
+    const draw=()=>{mine.innerHTML="";catsOf(k).slice().sort(byFr).forEach(c=>{const row=el("div","cat-row");const i=el("input");i.value=c;i.setAttribute("aria-label","Renommer "+c);
         i.onchange=()=>{const n=renameCat(k,c,i.value);i.value=n;draw();render();};
         const used=state.tx.filter(t=>t.type===typeOfKind(k)&&t.category===c).length;const n=el("span","cat-n",used?used+" op.":"");
         const del=el("button","x","✕");del.title="Supprimer";del.setAttribute("aria-label","Supprimer "+c);let armed=false;
@@ -1360,7 +1362,7 @@ function openImport(){
     const fillC=()=>{cS.innerHTML="";
       if(o.type==="Virement interne"){const op=el("option",null,"Virement interne");op.value="Virement interne";cS.appendChild(op);o.category="Virement interne";cS.disabled=true;return;}
       cS.disabled=false;const list=catsFor(kindOfType(o.type)).slice();
-      if(o.category&&o.category!=="Virement interne"&&!list.includes(o.category))list.push(o.category);
+      if(o.category&&o.category!=="Virement interne"&&!list.includes(o.category))list.push(o.category);list.sort(byFr);
       list.forEach(c=>{const op=el("option",null,c);op.value=c;cS.appendChild(op);});
       const nw=el("option",null,o.type==="Revenu"?"＋ Nouvelle catégorie de revenu…":"＋ Nouvelle catégorie de dépense…");nw.value="__new";cS.appendChild(nw);
       if(!list.includes(o.category))o.category=list[0];cS.value=o.category;};fillC();revFillers.push(fillC);
