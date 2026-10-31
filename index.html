@@ -723,8 +723,11 @@ function render(){
 }
 function renderDonut(tx,dep){
   const by={};tx.filter(t=>t.type==="Dépense").forEach(t=>{by[t.category]=(by[t.category]||0)+(+t.amount||0);});
-  let cats=Object.entries(by).sort((a,b)=>b[1]-a[1]);
-  if(cats.length>RAMP){const rest=cats.slice(RAMP-1).reduce((s,c)=>s+c[1],0);cats=cats.slice(0,RAMP-1).concat([["Autres catégories",rest]]);}
+  // la légende liste toutes les catégories ; le graphique regroupe les plus petites dans un seul secteur (même couleur)
+  const all=Object.entries(by).sort((a,b)=>b[1]-a[1]),many=all.length>RAMP;
+  const colorOf=i=>"var(--c"+(many&&i>=RAMP-1?RAMP:i+1)+")";
+  const small=many?all.slice(RAMP-1).map(c=>c[0]):[];
+  let cats=many?all.slice(0,RAMP-1).concat([["Autres catégories",all.slice(RAMP-1).reduce((s,c)=>s+c[1],0)]]):all;
   $("#donutSub").textContent=periodLabel();
   $("#clearCat").hidden=fCat==="all";
   const body=$("#donutBody");body.innerHTML="";
@@ -732,14 +735,15 @@ function renderDonut(tx,dep){
   body.style.display="";
   const R=48,C=2*Math.PI*R,gap=cats.length>1?1.4:0;
   let off=0,svg=`<svg viewBox="0 0 120 120" role="img" aria-label="Répartition des dépenses"><circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--panel-2)" stroke-width="15"/>`;
-  cats.forEach(([n,v],i)=>{const len=Math.max(0,v/dep*C-gap);const dim=fCat!=="all"&&fCat!=="D|"+n;svg+=`<circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--c${i+1})" stroke-width="15" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)" opacity="${dim?.25:1}"/>`;off+=v/dep*C;});
+  cats.forEach(([n,v],i)=>{const len=Math.max(0,v/dep*C-gap);const dim=fCat!=="all"&&fCat!=="D|"+n&&!(n==="Autres catégories"&&small.some(c=>fCat==="D|"+c));svg+=`<circle cx="60" cy="60" r="${R}" fill="none" stroke="${colorOf(i)}" stroke-width="15" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)" opacity="${dim?.25:1}"/>`;off+=v/dep*C;});
   const selD=fCat.startsWith("D|")?fCat.slice(2):null;const shown=selD&&by[selD]!=null?by[selD]:dep;
   svg+=`<text x="60" y="60" text-anchor="middle" fill="var(--ink)" style="font:700 15px var(--display)">${money(shown).replace(/&/g,"&amp;")}</text><text x="60" y="75" text-anchor="middle" fill="var(--muted)" style="font:500 8px var(--font)">${selD&&by[selD]!=null?"dans cette catégorie":"dépensé"}</text></svg>`;
   const w=el("div");w.innerHTML=svg;body.appendChild(w.firstElementChild);
   const lg=el("div","legend");
-  cats.forEach(([n,v],i)=>{const b=el("button");const real=n!=="Autres catégories";b.setAttribute("aria-pressed",fCat==="D|"+n);
-    const sw=el("span","sw");sw.style.background=`var(--c${i+1})`;b.appendChild(sw);b.appendChild(el("span","nm",n));b.appendChild(el("span","pc",Math.round(v/dep*100)+" %"));
-    b.title=n+" : "+fmt(v,true);if(real)b.onclick=()=>{fCat=fCat==="D|"+n?"all":"D|"+n;render();};else b.disabled=true;lg.appendChild(b);});
+  all.forEach(([n,v],i)=>{const b=el("button");b.setAttribute("aria-pressed",fCat==="D|"+n);
+    const sw=el("span","sw");sw.style.background=colorOf(i);b.appendChild(sw);b.appendChild(el("span","nm",n));
+    const pc=v/dep*100;b.appendChild(el("span","pc",pc>0&&pc<1?"<1 %":Math.round(pc)+" %"));
+    b.title=n+" : "+fmt(v,true);b.onclick=()=>{fCat=fCat==="D|"+n?"all":"D|"+n;render();};lg.appendChild(b);});
   body.appendChild(lg);
 }
 function renderBars(){
