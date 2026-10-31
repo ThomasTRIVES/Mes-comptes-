@@ -286,7 +286,7 @@ main{padding-block:16px 40px}
         <option value="12">12 mois</option>
         <option value="0">Tout</option>
       </select>
-      <button class="btn" id="importBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Importer PDF</button>
+      <button class="btn" id="importBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Importer</button>
       <button class="btn" id="exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12m0 0-4-4m4 4 4-4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>CSV</button>
       <button class="icon-btn" id="themeBtn" aria-label="Changer de thème" title="Changer de thème">◐</button>
       <button class="icon-btn" id="acctBtn" aria-label="Mon compte" title="Mon compte" hidden>☺</button>
@@ -385,9 +385,9 @@ const dayLabel=iso=>{const d=+iso.slice(8,10),m=+iso.slice(5,7);return d+" "+SHO
 
 let state={tx:[],budgets:{},subs:{}};
 const NEED={superflu:"Pas nécessaire",eviter:"À éviter"};
-const DEFAULT_ME=""; // ton nom tel qu'il apparaît sur tes relevés (modifiable dans « Importer PDF »)
-// un libellé qui contient tous les mots de ton nom = virement entre tes propres comptes
-function isSelf(up){const w=String(state.me||DEFAULT_ME||"").toUpperCase().split(/\s+/).filter(x=>x.length>1);return w.length>0&&w.every(x=>up.includes(x));}
+const DEFAULT_ME=""; // ton nom tel qu'il apparaît sur tes relevés (modifiable dans « Importer »)
+// un libellé qui contient tous les mots d'un des noms (séparés par des virgules) = virement entre tes propres comptes
+function isSelf(up){return String(state.me||DEFAULT_ME||"").split(/[,;]/).some(n=>{const w=n.toUpperCase().split(/\s+/).filter(x=>x.length>1);return w.length>0&&w.every(x=>up.includes(x));});}
 let viewMonth=todayISO().slice(0,7);
 let range=1,fCat="all",fType="all",fAcc="all";
 let loaded=false,demo=false,noDemo=false;
@@ -801,72 +801,198 @@ function detectAccount(head){
   if(/Compte d'épargne|Compte sur livret|\bLivret\b|\bLDDS?\b|\bLEP\b|\bCEL\b|\bPEL\b/i.test(head))return"Livret";
   return"Compte courant";
 }
+// début d'une opération : le libellé commence par un type d'opération connu
+const OP_START=/^(Paiement|Virement|Vir\b|Prélèvement|Prelevement|Prlv|Remboursement de pr|Chèque|Cheque|Retrait|Carte\b|CB\b|Avoir|TDF|Frais|Cotisation|Intérêts|Interets|Echéance|Échéance|Versement|Remise)/i;
+// préfixes de libellés à retirer pour garder le nom du commerçant ou de la personne
+const OP_PREFIX=/^\s*(Paiement par carte|Paiement CB|Achat CB|Virement en votre faveur|Virement émis|Virement emis|Virement permanent|Prélèvement|Prelevement|Retrait au distributeur|Retrait)\s*-\s*/i;
 function cleanLabel(s){
-  return s.replace(/^\s*(PAIEMENT PAR CARTE|PAIEMENT CB|ACHAT CB|CB)\s+(X\d{4}\s+)?/i,"").replace(/\s+\d{2}[\/.]\d{2}(?:[\/.]\d{2,4})?\s*$/,"").replace(/\b(CARTE|AVOIR|TDF EMIS VIA CB)\s+\d{2}\/\d{2}\/\d{2}\b/gi,"").replace(/\bCB\*\d+\b/gi,"").replace(/^\s*(VIREMENT EN VOTRE FAVEUR|VIR(EMENT)?\s+(SEPA|INST)|VIREMENT|VIR|PRLV SEPA|PRLV|PRELEVEMENT|PRÉLÈVEMENT)\b/i,"")
+  let t=String(s).replace(/\s+/g," ").trim();
+  // Crédit Agricole : « … 29/10 - IKEA » → le nom propre du commerçant est après la date
+  const ca=t.match(/\b\d{2}\/\d{2}\s+-\s+(.+)$/);
+  if(ca&&(OP_PREFIX.test(t)||/^(PAIEMENT|ACHAT|CARTE|CB)\b/i.test(t)))t=ca[1];
+  else{if(OP_PREFIX.test(t))t=t.replace(OP_PREFIX,"").replace(/^X\d{4}\s+/i,"").replace(/^VIR(EMENT)?(\s+(INST|SEPA))?(\s+(de|DE))?\s+/,"");
+    const first=t.split(/\s+-\s+/)[0];if(first.length>=3)t=first;} // « nom - motif » : on garde le nom
+  return t.replace(/^\s*(PAIEMENT PAR CARTE|PAIEMENT CB|ACHAT CB|CB)\s+(X\d{4}\s+)?/i,"").replace(/\s+\d{2}[\/.]\d{2}(?:[\/.]\d{2,4})?\s*$/,"").replace(/\b(CARTE|AVOIR|TDF EMIS VIA CB)\s+\d{2}\/\d{2}\/\d{2}\b/gi,"").replace(/\bCB\*\d+\b/gi,"").replace(/^\s*(VIREMENT EN VOTRE FAVEUR|VIR(EMENT)?\s+(SEPA|INST)|VIREMENT|VIR|PRLV SEPA|PRLV|PRELEVEMENT|PRÉLÈVEMENT)\b/i,"")
     .replace(/\s+\d+,?\d*\s*$/,"").replace(/\s+/g," ").trim().slice(0,60)||"Opération";
 }
+// une opération brute → opération de l'app (type, catégorie, libellé propre)
+function toOp(date,raw,detail,amount,dir,account){
+  const up=(raw+" "+detail.join(" ")).toUpperCase();
+  let type=dir==="out"?"Dépense":"Revenu";
+  if(INTERNAL_RE.test(raw.toUpperCase())||isSelf(raw.toUpperCase()))type="Virement interne"; // sur le libellé seul : les références contiennent souvent ton nom
+  return{date,label:cleanLabel(raw),amount:Math.round(amount*100)/100,type,category:guessCat(up,type),account};
+}
+const isNoise=t=>/^(R[èe]f|RUM|Carte\s*:|Taux)/i.test(t)||(/^[\dA-Z\-.\/ ]{10,}$/.test(t)&&/\d{6,}/.test(t));
 /* lines : [{page,y,items:[{s,x,r}]}] triées ; renvoie les opérations du relevé */
 function parseStatement(lines,fallbackYear){
   const text=lines.map(l=>l.items.map(i=>i.s).join(" ")).join("\n");
   const hi=lines.findIndex(l=>l.items.some(i=>OUT_H.test(i.s.trim()))&&l.items.some(i=>IN_H.test(i.s.trim())));
   const account=detectAccount(lines.slice(0,hi<0?40:hi).map(l=>l.items.map(i=>i.s).join(" ")).join("\n"));
   // fin de période du relevé, pour dater les opérations écrites sans année
-  const pm=text.match(/(?:au|jusqu'au|arrêté au)\s+(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/i);
+  const pm=text.match(/(?:au|jusqu'au|arrêté au|et le)\s+(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/i);
   const endY=pm?+pm[3]:(typeof fallbackYear==="number"?fallbackYear:new Date().getFullYear()),endM=pm?+pm[2]:12;
   const yearOf=mo=>mo>endM+1?endY-1:endY;
-  let cols=null;const out=[];let cur=null;
+  // 1) on repère les lignes d'opération (date + montant) et les lignes de texte entre elles
+  let cols=null;const seq=[];
   for(const ln of lines){
     const its=mergeAmounts(ln.items);if(!its.length)continue;
     const joined=its.map(i=>i.s).join(" ");
-    if(/^(Renvoy|Date de début|Transactions (en attente|annulées))/i.test(joined)){cols=null;cur=null;continue;} // opérations annulées/renvoyées : ignorées
+    if(/^(Renvoy|Date de début|Transactions (en attente|annulées))/i.test(joined)){cols=null;seq.push({brk:true});continue;} // opérations annulées/renvoyées : ignorées
     const oh=its.find(i=>OUT_H.test(i.s.trim())),ih=its.find(i=>IN_H.test(i.s.trim()));
-    if(oh&&ih){const bh=its.find(i=>BAL_H.test(i.s.trim()));cols={out:oh,in:ih,bal:bh||null};cur=null;continue;}
+    if(oh&&ih){const bh=its.find(i=>BAL_H.test(i.s.trim()));cols={out:oh,in:ih,bal:bh||null};seq.push({brk:true});continue;}
+    if(!cols)continue;
     const date=parseDateTxt(its[0].s.trim(),yearOf);
-    if(date&&cols&&!/SOLDE AU|NOUVEAU SOLDE|ANCIEN SOLDE|SOLDE DE CL|SOLDE CR[ÉE]DITEUR|SOLDE D[ÉE]BITEUR|TOTAL DES OP/i.test(joined)){
+    if(date&&!/SOLDE AU|NOUVEAU SOLDE|ANCIEN SOLDE|SOLDE DE CL|SOLDE CR[ÉE]DITEUR|SOLDE D[ÉE]BITEUR|TOTAL DES OP/i.test(joined)){
       let amt=null,dir=null;const labelParts=[];
       its.slice(1).forEach(i=>{
         const v=amountOf(i.s);
-        if(v!=null){const c=nearestCol(i,cols);if(c==="out"||c==="in"){amt=Math.abs(v);dir=v<0?"out":c;}return;}
+        if(v!=null){const c=colOf(i,cols);if(c==="out"||c==="in"){amt=Math.abs(v);dir=v<0?"out":c;}return;}
         if(parseDateTxt(i.s.trim(),yearOf))return; // date de valeur
         labelParts.push(i.s.trim());
       });
-      if(amt){cur={date,raw:labelParts.join(" "),detail:[],amount:Math.round(amt*100)/100,dir,page:ln.page,y:ln.y};out.push(cur);}
-      else cur=null;
+      seq.push(amt?{op:true,date,label:labelParts.join(" "),amount:amt,dir,page:ln.page,y:ln.y}:{brk:true});
       continue;
     }
-    // ligne de complément (bénéficiaire, motif) juste sous l'opération
-    if(cur&&ln.page===cur.page&&Math.abs(cur.y-ln.y)<40&&cur.detail.length<3){
-      if(its.some(i=>amountOf(i.s)!=null&&nearestCol(i,cols)!=="far"))continue;
-      if(/^(R[èe]f|RUM|Carte\s*:|Taux)/i.test(joined)||/^[\dA-Z\-.\/ ]{10,}$/.test(joined)&&/\d{6,}/.test(joined))continue;
-      cur.detail.push(joined.replace(/^(À|A|De|Référence)\s*:\s*/,""));
-    }else if(cur&&(ln.page!==cur.page||Math.abs(cur.y-ln.y)>=40))cur=null;
+    if(its.some(i=>amountOf(i.s)!=null&&colOf(i,cols)!=="far")){seq.push({brk:true});continue;}
+    seq.push({text:joined,page:ln.page,y:ln.y});
   }
-  return out.map(o=>{
-    const up=(o.raw+" "+o.detail.join(" ")).toUpperCase();
-    let type=o.dir==="out"?"Dépense":"Revenu";
-    if(INTERNAL_RE.test(o.raw.toUpperCase())||isSelf(o.raw.toUpperCase()))type="Virement interne"; // sur le libellé seul : les références contiennent souvent ton nom
-    const label=cleanLabel(o.raw);
-    return{date:o.date,label,amount:o.amount,type,category:guessCat(up,type),account};
+  // 2) chaque bloc de texte entre deux opérations va à l'une ou à l'autre :
+  //    au-dessus (cellule alignée en bas, ex. export Crédit Agricole) si le bloc commence par un type d'opération
+  //    et que la ligne datée n'en est que la fin ; sinon c'est le complément de l'opération précédente (Boursobank, Revolut)
+  const out=[];let prev=null,block=[];
+  const flush=next=>{
+    if(!block.length)return;
+    const startsAbove=next&&!OP_START.test(next.label)&&OP_START.test(block[0].text)&&block.every(b=>b.page===next.page&&b.y-next.y<80);
+    if(startsAbove){next.label=block.map(b=>b.text).concat(next.label?[next.label]:[]).join(" ");}
+    else if(prev){block.forEach(b=>{if(b.page===prev.page&&prev.y-b.y<40&&prev.detail.length<3&&!isNoise(b.text))prev.detail.push(b.text.replace(/^(À|A|De|Référence)\s*:\s*/,""));});}
+    block=[];
+  };
+  seq.forEach(s=>{
+    if(s.brk){flush(null);prev=null;return;}
+    if(s.op){const o={...s,detail:[]};flush(o);out.push(o);prev=o;return;}
+    if(prev&&(s.page!==prev.page||prev.y-s.y>=80)){flush(null);prev=null;}
+    block.push(s);
   });
+  flush(null);
+  return out.map(o=>toOp(o.date,o.label,o.detail,o.amount,o.dir,account));
 }
 // « 1 » + « 234,56 » écrits côte à côte = 1 234,56
 function mergeAmounts(items){
   const out=[];
   items.forEach(i=>{const p=out[out.length-1];
-    if(p&&/^[+\-−]?\d{1,3}$/.test(p.s.trim())&&/^\d{3}(?:[.\u00a0\u202f ]\d{3})*,\d{2}/.test(i.s.trim())&&i.x-p.r<6)out[out.length-1]={s:p.s.trim()+" "+i.s.trim(),x:p.x,r:i.r};
+    if(p&&/^[+\-−]?\d{1,3}$/.test(p.s.trim())&&/^\d{3}(?:[.   ]\d{3})*,\d{2}/.test(i.s.trim())&&i.x-p.r<6)out[out.length-1]={s:p.s.trim()+" "+i.s.trim(),x:p.x,r:i.r};
     else out.push(i);});
   return out;
 }
-function nearestCol(it,cols){
-  const c=(it.x+it.r)/2;let best="far",bd=1e9;
-  for(const k of["out","in","bal"]){const h=cols[k];if(!h)continue;const d=Math.min(Math.abs(it.x-h.x),Math.abs(it.r-h.r),Math.abs(c-(h.x+h.r)/2));if(d<bd){bd=d;best=k;}}
-  return bd<70?best:"far";
+// colonne d'un montant : celle dont l'en-tête commence avant le milieu du montant et dont la suivante commence après
+function colOf(it,cols){
+  const c=(it.x+it.r)/2,hs=["out","in","bal"].filter(k=>cols[k]).map(k=>({k,x:cols[k].x,r:cols[k].r})).sort((a,b)=>a.x-b.x);
+  if(!hs.length||c<hs[0].x-90||c>hs[hs.length-1].r+120)return"far";
+  let best=hs[0].k;hs.forEach(h=>{if(c>=h.x-8)best=h.k;});
+  return best;
 }
 function guessCat(up,type){
   if(type==="Virement interne")return"Virement interne";
-  if(type==="Revenu"){if(/FRAIS PRO/.test(up))return"Remboursement";if(/SALAIRE|\bPAIE\b|RETRAITE|PENSION|CARSAT|AGIRC|ARRCO|GROUPEMENT D'EMPLOYEURS|JDA|HANDBALL|UNIVERSIT/.test(up))return"Salaire";if(/URSSAF|CLIENT|FACTURE/.test(up))return"Auto-entreprise";if(/\bCAF\b|APL|PRIME|ALLOC/.test(up))return"Aides (APL/prime)";if(/REMBOURS|AVOIR|^REFUND/.test(up))return"Remboursement";return"Autre revenu";}
-  const map=[[/CARREFOUR|LECLERC|LIDL|AUCHAN|MONOPRIX|MONOP|INTERMARCHE|CASINO|FRANPRIX|SUPER U|U EXPRESS|PICARD|BIOCOOP|ALDI|MARCHE PLUS|NESPRESSO|MAXICOFFEE|GRAIN DE CASSIS|SELECTA/,"Alimentation"],[/UBER EATS|DELIVEROO|RESTAU|MCDO|KFC|BURGER|BAR |CAFE|CAFÉ|BRASSERIE|BOULANGERIE|PIZZ|SUSHI|SAKANA|IZLY|AREAS|VITA AL DENTE/,"Restau & sorties"],[/BOOKING|HOTEL|HÔTEL|IBIS|EDREAMS|AIRBNB|GETYOURGUIDE|RYANAIR|EASYJET|AIR FRANCE/,"Voyages"],[/SNCF|OUIGO|TGV|TER |UBER|BLABLA|ESSENCE|TOTAL|STATION|PARKING|VOIRIE|DIVIA|MOBILIT|MÉTROPOLE|METROPOLE|\bSPL\b|NAVIGO|RATP|TRAINLINE|TRANSDEV|ULYS|PEAGE|PÉAGE|\bTAN\b|\bTAM\b/,"Transport"],[/NETFLIX|SPOTIFY|DEEZER|CANAL|DISNEY|YOUTUBE|ABONNEMENT|APPLE\.COM|ICLOUD|GOOGLE|FREE MOBILE|ORANGE|SFR|BOUYGUES|SOSH/,"Abonnements"],[/LOYER|AGENCE|IMMO|ORPI|DEVOSNE|EDF|ENGIE|VEOLIA/,"Logement"],[/PHARMA|DOCTEUR|MEDECIN|MUTUELLE|OPTIC|DENTAIRE|LABO|HOPITAL|IHERB/,"Santé"],[/DECATHLON|FITNESS|BASIC ?FIT|KLUBE|SALLE DE SPORT/,"Sport"],[/ZARA|H&M|AMAZON|FNAC|ZALANDO|NIKE|ADIDAS|SHEIN|VINTED|UNIQLO|KIABI|AYBL|BARBER|IKEA|BOULANGER\b/,"Shopping"],[/RETRAIT|DAB|DISTRIB/,"Retrait cash"]];
+  if(type==="Revenu"){if(/FRAIS PRO/.test(up))return"Remboursement";if(/SALAIRE|\bPAIE\b|PAYES|REMUNERATION|RÉMUNÉRATION|RETRAITE|PENSION|CARSAT|AGIRC|ARRCO|GROUPEMENT D'EMPLOYEURS|JDA|HANDBALL|UNIVERSIT/.test(up))return"Salaire";if(/URSSAF|CLIENT|FACTURE/.test(up))return"Auto-entreprise";if(/\bCAF\b|APL|PRIME|ALLOC/.test(up))return"Aides (APL/prime)";if(/REMBOURS|AVOIR|^REFUND|MGEN|MUTUELLE|CPAM|AMELI|ASSURANCE MALADIE/.test(up))return"Remboursement";return"Autre revenu";}
+  const map=[[/REMBOURSEMENT DE PR[ÊE]T|ECHEANCE PR[ÊE]T|LOYER|AGENCE|IMMO|ORPI|DEVOSNE|EDF|ENGIE|VEOLIA|LEROY MERLIN|CASTORAMA|BRICO/,"Logement"],[/CARREFOUR(?! BANQUE)|LECLERC|LIDL|AUCHAN|MONOPRIX|MONOP|INTERMARCHE|CASINO|FRANPRIX|SUPER U|U EXPRESS|PICARD|BIOCOOP|ALDI|MARCHE PLUS|NESPRESSO|MAXICOFFEE|GRAIN DE CASSIS|SELECTA/,"Alimentation"],[/UBER EATS|DELIVEROO|RESTAU|MCDO|KFC|BURGER|BAR |CAFE|CAFÉ|BRASSERIE|BOULANGERIE|PIZZ|SUSHI|SAKANA|IZLY|AREAS|VITA AL DENTE|FOOD|GASTON/,"Restau & sorties"],[/BOOKING|HOTEL|HÔTEL|IBIS|EDREAMS|AIRBNB|GETYOURGUIDE|RYANAIR|EASYJET|AIR FRANCE/,"Voyages"],[/SNCF|OUIGO|TGV|TER |UBER|BLABLA|ESSENCE|TOTAL|STATION|PARKING|VOIRIE|EFFIA|DIVIA|MOBILIT|MÉTROPOLE|METROPOLE|\bSPL\b|NAVIGO|RATP|TRAINLINE|TRANSDEV|ULYS|PEAGE|PÉAGE|\bTAN\b|\bTAM\b/,"Transport"],[/NETFLIX|SPOTIFY|DEEZER|CANAL|DISNEY|YOUTUBE|ABONNEMENT|APPLE\.COM|ICLOUD|GOOGLE|FREE MOBILE|ORANGE|SFR|BOUYGUES|SOSH/,"Abonnements"],[/PHARMA|DOCTEUR|MEDECIN|MUTUELLE|OPTIC|DENTAIRE|LABO|HOPITAL|IHERB/,"Santé"],[/DECATHLON|FITNESS|BASIC ?FIT|KLUBE|SALLE DE SPORT/,"Sport"],[/ZARA|H&M|AMAZON|FNAC|ZALANDO|NIKE|ADIDAS|SHEIN|VINTED|UNIQLO|KIABI|AYBL|BARBER|IKEA|BOULANGER\b/,"Shopping"],[/RETRAIT|DAB|DISTRIB/,"Retrait cash"]];
   for(const[re,c]of map)if(re.test(up))return c;return"Autre";
+}
+
+/* ---- import CSV / Excel / OFX exportés par la banque (Crédit Agricole, etc.) ---- */
+function parseNum(v){
+  if(typeof v==="number")return v;
+  let s=String(v==null?"":v).replace(/[\s  €¨]/g,"").replace(/^\((.*)\)$/,"-$1");
+  if(!s)return null;
+  if(s.includes(",")&&s.includes("."))s=s.replace(/\./g,"").replace(",",".");else s=s.replace(",",".");
+  const n=parseFloat(s);return isFinite(n)?n:null;
+}
+function parseCellDate(v,fy){
+  if(v instanceof Date&&!isNaN(v))return v.getFullYear()+"-"+pad(v.getMonth()+1)+"-"+pad(v.getDate());
+  const s=String(v==null?"":v).trim();
+  let m=s.match(/^(\d{4})-(\d{2})-(\d{2})/);if(m)return m[1]+"-"+m[2]+"-"+m[3];
+  return parseDateTxt(s,fy);
+}
+function splitCsv(text){
+  const first=text.split(/\r?\n/).slice(0,15).join("\n");
+  const sep=[";","\t",","].map(c=>[c,(first.match(new RegExp(c==="\t"?"\\t":c,"g"))||[]).length]).sort((a,b)=>b[1]-a[1])[0][0];
+  const rows=[];let row=[],cur="",q=false;
+  for(let i=0;i<text.length;i++){const c=text[i];
+    if(q){if(c=='"'&&text[i+1]=='"'){cur+='"';i++;}else if(c=='"')q=false;else cur+=c;}
+    else if(c=='"')q=true;else if(c===sep){row.push(cur);cur="";}
+    else if(c=="\n"||c=="\r"){if(c=="\r"&&text[i+1]=="\n")i++;row.push(cur);rows.push(row);row=[];cur="";}
+    else cur+=c;}
+  if(cur||row.length){row.push(cur);rows.push(row);}
+  return rows;
+}
+// tableau (lignes de cellules) → opérations ; repère tout seul la ligne d'en-tête
+function parseTable(rows,fallbackYear,fileName){
+  const norm=c=>String(c==null?"":c).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
+  const hi=rows.findIndex(r=>r.some(c=>/^date/.test(norm(c)))&&r.some(c=>/libelle|description|label|intitule|operation|nature/.test(norm(c))));
+  if(hi<0)return null;
+  const h=rows[hi].map(norm);
+  const find=re=>h.findIndex(c=>re.test(c));
+  const iDate=find(/^date( d.?operation| operation| comptable)?$/)>=0?find(/^date( d.?operation| operation| comptable)?$/):find(/^date/);
+  const iLab=find(/libelle|description|label|intitule|nature/);
+  const iOut=find(/debit/),iIn=find(/credit/),iAmt=find(/^montant|^amount|^somme/),iType=find(/^type$/),iCat=find(/^categorie$/),iAcc=find(/^compte$/);
+  if(iDate<0||iLab<0||(iAmt<0&&(iOut<0||iIn<0)))return null;
+  const head=rows.slice(0,hi).map(r=>r.join(" ")).join(" ");
+  const account=detectAccount(head+" "+(fileName||""));
+  const out=[];
+  rows.slice(hi+1).forEach(r=>{
+    const date=parseCellDate(r[iDate],fallbackYear);if(!date)return;
+    let amt=null,dir=null;
+    if(iAmt>=0){const v=parseNum(r[iAmt]);if(v){amt=Math.abs(v);dir=v<0?"out":"in";}}
+    else{const d=parseNum(r[iOut]),c=parseNum(r[iIn]);if(d){amt=Math.abs(d);dir=d>0?"out":"in";}else if(c){amt=Math.abs(c);dir=c>0?"in":"out";}}
+    if(!amt)return;
+    const raw=String(r[iLab]||"").replace(/\s+/g," ").trim();
+    const op=toOp(date,raw,[],amt,dir,account);
+    // export de cette app (colonnes type / catégorie / compte) : on reprend tel quel
+    if(iType>=0&&TYPES.includes(String(r[iType]).trim())){op.type=String(r[iType]).trim();op.label=raw||op.label;if(iCat>=0&&r[iCat])op.category=String(r[iCat]).trim();if(iAcc>=0&&r[iAcc])op.account=String(r[iAcc]).trim();}
+    out.push(op);
+  });
+  return out;
+}
+// OFX / QFX : format standard proposé par la plupart des banques (montants signés)
+function parseOfx(text){
+  const tag=(b,n)=>{const m=b.match(new RegExp("<"+n+">([^<\\r\\n]*)","i"));return m?m[1].trim():"";};
+  const acct=/<ACCTTYPE>\s*(SAVINGS|MONEYMRKT)/i.test(text)?"Livret":"Compte courant";
+  const out=[];
+  (text.match(/<STMTTRN>[\s\S]*?(<\/STMTTRN>|(?=<STMTTRN>)|(?=<\/BANKTRANLIST>))/gi)||[]).forEach(b=>{
+    const d=tag(b,"DTPOSTED").match(/^(\d{4})(\d{2})(\d{2})/);const v=parseNum(tag(b,"TRNAMT"));
+    if(!d||!v)return;
+    const name=tag(b,"NAME"),memo=tag(b,"MEMO");
+    const raw=(name+(memo&&!name.includes(memo)?" - "+memo:"")).replace(/\s+/g," ").trim()||"Opération";
+    out.push(toOp(d[1]+"-"+d[2]+"-"+d[3],raw,[],Math.abs(v),v<0?"out":"in",acct));
+  });
+  return out;
+}
+let xlsxLoading=null;
+function loadXlsx(){
+  if(window.XLSX)return Promise.resolve(window.XLSX);
+  return xlsxLoading=xlsxLoading||new Promise((ok,ko)=>{const s=document.createElement("script");s.src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";s.onload=()=>ok(window.XLSX);s.onerror=()=>{xlsxLoading=null;ko(new Error("xlsx"));};document.head.appendChild(s);});
+}
+async function readTextSmart(file){
+  const buf=await file.arrayBuffer();
+  let t=new TextDecoder("utf-8").decode(buf);
+  if(t.includes("�"))t=new TextDecoder("windows-1252").decode(buf); // exports bancaires souvent en Windows-1252
+  return t.replace(/^﻿/,"");
+}
+// un fichier → opérations ; null si le format n'est pas reconnu
+async function readBankFile(f,fy){
+  const n=f.name.toLowerCase();
+  if(/\.pdf$/.test(n)||/pdf/i.test(f.type))return parseStatement(await extractPdfLines(f).catch(()=>[]),fy);
+  if(/\.(ofx|qfx)$/.test(n))return parseOfx(await readTextSmart(f));
+  if(/\.(xlsx|xls|ods)$/.test(n)){
+    const X=await loadXlsx();const wb=X.read(new Uint8Array(await f.arrayBuffer()),{type:"array",cellDates:true});
+    let all=null;wb.SheetNames.forEach(sn=>{const r=parseTable(X.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:""}),fy,f.name);if(r)all=(all||[]).concat(r);});
+    return all;
+  }
+  if(/\.(csv|txt)$/.test(n)||/csv|text/i.test(f.type)){
+    const t=await readTextSmart(f);
+    if(/<OFX>|<STMTTRN>/i.test(t))return parseOfx(t);
+    return parseTable(splitCsv(t),fy,f.name);
+  }
+  return null;
 }
 async function extractPdfLines(file){
   const lib=window.pdfjsLib;if(!lib)throw new Error("nolib");
@@ -878,14 +1004,14 @@ async function extractPdfLines(file){
   return out;
 }
 function openImport(){
-  const b=modal("Importer un relevé PDF");
-  if(!window.pdfjsLib){b.appendChild(el("p","note","Le lecteur PDF n'a pas pu se charger. Recharge la page, ou ajoute tes opérations à la main."));return;}
-  b.appendChild(el("p","note","Dépose le relevé exporté depuis ton appli bancaire. Il est lu sur ton appareil, sans rien envoyer. Tu valides chaque ligne avant l'ajout. Pour mettre à jour un relevé, redépose-le : seules les nouvelles lignes sont ajoutées, et tes corrections sont gardées."));
-  const meF=el("label","fld");meF.appendChild(el("span",null,"Ton nom sur tes relevés (pour reconnaître les virements entre tes comptes)"));const meI=el("input");meI.id="meName";meI.placeholder="NOM Prénom";meI.value=state.me||DEFAULT_ME;
+  const b=modal("Importer un relevé");
+  if(!window.pdfjsLib)b.appendChild(el("p","err","Le lecteur PDF n'a pas pu se charger : seuls les fichiers CSV, Excel et OFX passeront."));
+  b.appendChild(el("p","note","Dépose le relevé exporté depuis ton appli bancaire : PDF, Excel (.xlsx), CSV ou OFX. Si ta banque propose l'OFX, c'est le plus fiable. Le fichier est lu sur ton appareil, sans rien envoyer. Tu valides chaque ligne avant l'ajout. Pour mettre à jour un relevé, redépose-le : seules les nouvelles lignes sont ajoutées, et tes corrections sont gardées."));
+  const meF=el("label","fld");meF.appendChild(el("span",null,"Ton nom sur tes relevés, pour reconnaître les virements entre tes comptes (plusieurs façons de l'écrire : sépare-les par des virgules)"));const meI=el("input");meI.id="meName";meI.placeholder="NOM Prénom, NOM P";meI.value=state.me||DEFAULT_ME;
   meI.onchange=()=>{state.me=meI.value.trim();persist();};meF.appendChild(meI);b.appendChild(meF);
   importsBlock(b);
-  const drop=el("div","drop","Dépose un ou plusieurs PDF ici, ou touche pour choisir");drop.tabIndex=0;
-  const input=el("input");input.type="file";input.accept="application/pdf,.pdf";input.multiple=true;input.hidden=true;
+  const drop=el("div","drop","Dépose un ou plusieurs fichiers ici, ou touche pour choisir");drop.tabIndex=0;
+  const input=el("input");input.type="file";input.accept="application/pdf,.pdf,.csv,.txt,.ofx,.qfx,.xlsx,.xls,.ods,text/csv";input.multiple=true;input.hidden=true;
   drop.onclick=()=>input.click();drop.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();input.click();}};
   ["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hot");}));
   ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("hot");}));
@@ -894,16 +1020,17 @@ function openImport(){
   b.appendChild(drop);b.appendChild(input);
   const status=el("div","note");b.appendChild(status);const review=el("div");b.appendChild(review);
   async function handle(files){
-    status.innerHTML='<span class="spin"></span> Lecture du PDF…';review.innerHTML="";let rows=[];
+    status.innerHTML='<span class="spin"></span> Lecture du fichier…';review.innerHTML="";let rows=[];const unknown=[];
     try{
-      for(const f of[...files]){if(!/pdf/i.test(f.type)&&!/\.pdf$/i.test(f.name))continue;rows=rows.concat(parseStatement(await extractPdfLines(f).catch(()=>[]),+viewMonth.slice(0,4)).map(r=>({...r,file:f.name})));}
+      for(const f of[...files]){const r=await readBankFile(f,+viewMonth.slice(0,4)).catch(()=>null);if(!r){unknown.push(f.name);continue;}rows=rows.concat(r.map(x=>({...x,file:f.name})));}
+      if(unknown.length&&!rows.length){status.textContent="Format non reconnu ("+unknown.join(", ")+"). Essaie l'export OFX, CSV ou Excel de ta banque, ou envoie-moi le fichier pour que je l'ajoute.";return;}
       const key=r=>r.date+"|"+(+r.amount).toFixed(2)+"|"+r.label;
       // déjà présentes = même date, montant et libellé, compté ligne à ligne (deux achats identiques le même jour restent deux)
       const have={};state.tx.forEach(t=>{const k=key(t);have[k]=(have[k]||0)+1;});const before=rows.length;
       rows=rows.filter(r=>{const k=key(r);if(have[k]>0){have[k]--;return false;}return true;});
-      if(!rows.length){status.textContent=before?"Toutes ces opérations sont déjà dans tes comptes.":"Aucune opération trouvée. Le PDF est peut-être une image scannée : ajoute les lignes à la main.";return;}
+      if(!rows.length){status.textContent=before?"Toutes ces opérations sont déjà dans tes comptes.":"Aucune opération trouvée. Si c'est un PDF scanné (une image), il ne peut pas être lu : prends plutôt l'export CSV, Excel ou OFX de ta banque.";return;}
       status.textContent=rows.length+" opération(s) trouvée(s)"+(before>rows.length?" ("+(before-rows.length)+" déjà présente(s) ignorée(s))":"")+". Vérifie puis ajoute :";showReview(rows);
-    }catch(e){status.textContent="";review.appendChild(el("div","err","La lecture a échoué. Essaie un autre PDF ou ajoute à la main."));}
+    }catch(e){status.textContent="";review.appendChild(el("div","err","La lecture a échoué. Essaie un autre format (OFX, CSV, Excel) ou ajoute à la main."));}
   }
   function showReview(rows){
     const list=el("div","rev-list");const items=rows.map(r=>{const o={...r,account:r.account||"Compte courant",keep:true};list.appendChild(revItem(o));return o;});
