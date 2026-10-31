@@ -279,6 +279,7 @@ main{padding-block:16px 40px}
         <span class="mlabel num" id="mLabel">—</span>
         <button id="nextM" aria-label="Mois suivant">›</button>
       </div>
+      <select id="ownerSel" aria-label="Personne" hidden></select>
       <select id="rangeSel" aria-label="Période">
         <option value="1">Ce mois</option>
         <option value="3">3 mois</option>
@@ -389,15 +390,15 @@ const DEFAULT_ME=""; // ton nom tel qu'il apparaît sur tes relevés (modifiable
 // un libellé qui contient tous les mots d'un des noms (séparés par des virgules) = virement entre tes propres comptes
 function isSelf(up){return String(state.me||DEFAULT_ME||"").split(/[,;]/).some(n=>{const w=n.toUpperCase().split(/\s+/).filter(x=>x.length>1);return w.length>0&&w.every(x=>up.includes(x));});}
 let viewMonth=todayISO().slice(0,7);
-let range=1,fCat="all",fType="all",fAcc="all";
+let range=1,fCat="all",fType="all",fAcc="all",fOwner="all";
 let loaded=false,demo=false,noDemo=false;
 try{noDemo=localStorage.getItem("mc_nodemo")==="1";}catch(e){}
 function hideDemo(){noDemo=true;try{localStorage.setItem("mc_nodemo","1");}catch(e){}setStatus("");render();}
 const written={}; // docId -> JSON déjà en base (évite les écritures inutiles)
 
 /* ---- préférences (confort, cet appareil) ---- */
-try{const p=JSON.parse(localStorage.getItem("mc_prefs")||"{}");if(p.range!=null)range=+p.range;if(p.fType)fType=p.fType;if(p.fAcc)fAcc=p.fAcc;}catch(e){}
-function savePrefs(){try{localStorage.setItem("mc_prefs",JSON.stringify({range,fType,fAcc}));}catch(e){}}
+try{const p=JSON.parse(localStorage.getItem("mc_prefs")||"{}");if(p.range!=null)range=+p.range;if(p.fType)fType=p.fType;if(p.fAcc)fAcc=p.fAcc;if(p.fOwner!=null)fOwner=p.fOwner;}catch(e){}
+function savePrefs(){try{localStorage.setItem("mc_prefs",JSON.stringify({range,fType,fAcc,fOwner}));}catch(e){}}
 
 /* ---- connexion à TON Supabase : colle ici l'URL du projet et la clé "anon public" (Project Settings → API).
    Laissées vides, l'app les demande au premier lancement et les garde sur l'appareil. ---- */
@@ -549,9 +550,9 @@ function restoreCsv(text){
   const key=r=>r.date+"|"+(+r.amount).toFixed(2)+"|"+r.label;
   const have={};state.tx.forEach(t=>{const k=key(t);have[k]=(have[k]||0)+1;});
   let n=0;
-  lines.slice(1).forEach(l=>{const[date,type,category,label,account,m]=cells(l);const amount=Math.abs(parseFloat(String(m).replace(/\s/g,"").replace(",",".")));
+  lines.slice(1).forEach(l=>{const[date,type,category,label,account,m,owner]=cells(l);const amount=Math.abs(parseFloat(String(m).replace(/\s/g,"").replace(",",".")));
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!(amount>0)||!TYPES.includes(type))return;
-    const r={id:uid_(),date,type,category:category||"Autre",label:label||category,account:account||"Compte courant",amount:Math.round(amount*100)/100};
+    const r={id:uid_(),date,type,category:category||"Autre",label:label||category,account:account||"Compte courant",amount:Math.round(amount*100)/100,owner:owner||undefined};
     const k=key(r);if(have[k]>0){have[k]--;return;}state.tx.push(r);n++;});
   if(n){demo=false;setStatus("");persist();render();}
   return n;
@@ -579,14 +580,24 @@ function inRange(d){const[s,e]=rangeBounds();const i=mIdx((d||"0000-01").slice(0
 const showDemo=()=>demo&&!noDemo;
 const baseTx=()=>showDemo()?demoTx():state.tx;
 const budgets=()=>showDemo()?DEMO_BUD:state.budgets;
-const periodTx=()=>baseTx().filter(t=>inRange(t.date)&&(fAcc==="all"||t.account===fAcc));
+// plusieurs personnes : chaque opération peut porter « owner » (titulaire du compte)
+const ownersList=()=>[...new Set(state.tx.map(t=>t.owner).filter(Boolean))].sort();
+const accountsList=()=>{const s=new Set(ACCOUNTS);baseTx().forEach(t=>{if(t.account)s.add(t.account);});return[...s];};
+const inScope=t=>(fOwner==="all"||(t.owner||"")===fOwner)&&(fAcc==="all"||t.account===fAcc);
+const periodTx=()=>baseTx().filter(t=>inRange(t.date)&&inScope(t));
 const sum=(a,type)=>a.filter(t=>t.type===type).reduce((s,t)=>s+(+t.amount||0),0);
 function periodLabel(){const[s,e]=rangeBounds();if(range===1)return MONTHS[e%12]+" "+Math.floor(e/12);if(range===0)return"tout l'historique";return SHORT[((s%12)+12)%12]+" "+Math.floor(s/12)+" → "+SHORT[e%12]+" "+Math.floor(e/12);}
 
 /* ---- rendu ---- */
 function fillFilters(){
   const cs=$("#catSel");if(!cs.dataset.ready){cs.innerHTML='<option value="all">Catégories</option>'+ALL_CATS.map(c=>`<option value="${c}">${c}</option>`).join("");cs.dataset.ready="1";}
-  const as=$("#accSel");if(!as.dataset.ready){as.innerHTML='<option value="all">Comptes</option>'+ACCOUNTS.map(c=>`<option value="${c}">${c}</option>`).join("");as.dataset.ready="1";}
+  const opt=(v,l)=>{const o=el("option",null,l);o.value=v;return o;};
+  const accs=accountsList();if(fAcc!=="all"&&!accs.includes(fAcc))fAcc="all";
+  const as=$("#accSel");as.innerHTML="";as.appendChild(opt("all","Comptes"));accs.forEach(c=>as.appendChild(opt(c,c)));
+  // choix de la personne : seulement quand des comptes de plusieurs personnes sont importés
+  const owners=ownersList(),os=$("#ownerSel"),anon=state.tx.some(t=>!t.owner);
+  if(fOwner!=="all"&&!(owners.includes(fOwner)||(fOwner===""&&anon)))fOwner="all";
+  os.hidden=!owners.length||(owners.length<2&&!anon);os.innerHTML="";os.appendChild(opt("all","Tout le monde"));owners.forEach(o=>os.appendChild(opt(o,o)));if(anon&&owners.length)os.appendChild(opt("","Sans titulaire"));os.value=fOwner;
   cs.value=fCat;as.value=fAcc;$("#typeSel").value=fType;$("#rangeSel").value=String(range);
 }
 function render(){
@@ -625,7 +636,7 @@ function renderDonut(tx,dep){
   body.appendChild(lg);
 }
 function renderBars(){
-  const e=mIdx(viewMonth),src=baseTx().filter(t=>t.type==="Dépense"&&(fAcc==="all"||t.account===fAcc)),vals=[];
+  const e=mIdx(viewMonth),src=baseTx().filter(t=>t.type==="Dépense"&&inScope(t)),vals=[];
   for(let i=5;i>=0;i--){const ym=ymOf(e-i);vals.push([ym,src.filter(t=>(t.date||"").startsWith(ym)).reduce((s,t)=>s+(+t.amount||0),0)]);}
   const max=Math.max(...vals.map(v=>v[1]),1);
   $("#monthsMax").textContent="";
@@ -639,7 +650,7 @@ function renderBars(){
 function renderBudgets(){
   const bud=budgets(),list=$("#budList");list.innerHTML="";
   $("#budSub").textContent=MONTHS[+viewMonth.slice(5)-1]+" · se remet à zéro chaque mois";
-  const spent={};baseTx().filter(t=>t.type==="Dépense"&&(t.date||"").startsWith(viewMonth)).forEach(t=>{spent[t.category]=(spent[t.category]||0)+(+t.amount||0);});
+  const spent={};baseTx().filter(t=>t.type==="Dépense"&&inScope(t)&&(t.date||"").startsWith(viewMonth)).forEach(t=>{spent[t.category]=(spent[t.category]||0)+(+t.amount||0);});
   const names=EXP_CATS.filter(c=>bud[c]>0);
   $("#editBud").hidden=showDemo();
   if(!names.length){const w=emptyBlock("Aucun budget défini","Fixe un plafond mensuel par catégorie pour voir où tu en es.");if(!showDemo()){const b=el("button","btn outline","Définir mes budgets");b.style.marginTop="10px";b.onclick=openBudgets;w.appendChild(b);}list.appendChild(w);return;}
@@ -665,7 +676,7 @@ const ABO_RE=/BASIC ?FIT|NETFLIX|SPOTIFY|DEEZER|DISNEY|CANAL|PRIME VIDEO|AMAZON 
 const subKey=l=>String(l||"").toUpperCase().replace(/[\d*#.,]+/g," ").replace(/\s+/g," ").trim();
 function detectSubs(){
   const groups={};
-  baseTx().filter(t=>t.type==="Dépense").forEach(t=>{const k=subKey(t.label||t.category);if(!k)return;const g=groups[k]=groups[k]||{key:k,tx:[],months:new Set(),abo:false};g.tx.push(t);g.months.add((t.date||"").slice(0,7));if(t.category==="Abonnements"||ABO_RE.test(k))g.abo=true;});
+  baseTx().filter(t=>t.type==="Dépense"&&inScope(t)).forEach(t=>{const k=subKey(t.label||t.category);if(!k)return;const g=groups[k]=groups[k]||{key:k,tx:[],months:new Set(),abo:false};g.tx.push(t);g.months.add((t.date||"").slice(0,7));if(t.category==="Abonnements"||ABO_RE.test(k))g.abo=true;});
   const skip=["Alimentation","Restau & sorties","Transport","Shopping","Retrait cash","Voyages"];
   return Object.values(groups).map(g=>{g.tx.sort((a,b)=>(b.date||"").localeCompare(a.date||""));const last=g.tx[0],prev=g.tx.find(t=>(t.date||"").slice(0,7)!==(last.date||"").slice(0,7));
     const steady=prev&&Math.abs(prev.amount-last.amount)<=Math.max(1,last.amount*.1);
@@ -700,7 +711,7 @@ function mvRow(t){
   const ttl=el("div","t",t.type==="Virement interne"?(t.label||"Virement interne"):t.category);
   if(t.type==="Dépense"&&NEED[t.need])ttl.appendChild(el("span","tag "+t.need,NEED[t.need]));
   main.appendChild(ttl);
-  const sub=[dayLabel(t.date||"")];if(t.type!=="Virement interne"&&t.label&&t.label!==t.category)sub.push(t.label);if(t.account&&t.account!=="Compte courant")sub.push(t.account);
+  const sub=[dayLabel(t.date||"")];if(t.type!=="Virement interne"&&t.label&&t.label!==t.category)sub.push(t.label);if(t.account&&t.account!=="Compte courant")sub.push(t.account);if(t.owner&&fOwner==="all"&&ownersList().length>1)sub.push(t.owner);
   main.appendChild(el("div","s",sub.join(" · ")));b.appendChild(main);
   const cls=t.type==="Dépense"?"":t.type==="Revenu"?" rev":" tr",sign=t.type==="Dépense"?"− ":t.type==="Revenu"?"+ ":"⇄ ";
   b.appendChild(el("span","amt"+cls,sign+money(+t.amount||0,true)));
@@ -730,9 +741,13 @@ function txForm(host,existing,done){
   fillChips();
   const two=el("div","two");
   const fd=el("label","fld");fd.appendChild(el("span",null,"Date"));const di=el("input");di.type="date";di.id=existing?"editDate":"addDate";di.value=t.date||todayISO();fd.appendChild(di);
-  const fa=el("label","fld");fa.appendChild(el("span",null,"Compte"));const as=el("select");as.id=existing?"editAcc":"addAcc";ACCOUNTS.forEach(a=>{const o=el("option",null,a);if(a===t.account)o.selected=true;as.appendChild(o);});fa.appendChild(as);
+  const fa=el("label","fld");fa.appendChild(el("span",null,"Compte"));const as=el("select");as.id=existing?"editAcc":"addAcc";accountsList().forEach(a=>{const o=el("option",null,a);if(a===t.account)o.selected=true;as.appendChild(o);});fa.appendChild(as);
   two.appendChild(fd);two.appendChild(fa);host.appendChild(two);
   const fl=el("label","fld");fl.appendChild(el("span",null,"Note (optionnel)"));const li=el("input");li.id=existing?"editLabel":"addLabel";li.placeholder="ex. courses du samedi";li.value=existing&&t.label!==t.category?t.label||"":"";fl.appendChild(li);host.appendChild(fl);
+  // personne (titulaire), proposée dès que des comptes de plusieurs personnes existent
+  const fo=el("label","fld");fo.appendChild(el("span",null,"Personne"));const oi=el("input");oi.id=existing?"editOwner":"addOwner";oi.setAttribute("list","ownersDl");oi.placeholder="Titulaire du compte";
+  oi.value=existing?(t.owner||""):(fOwner!=="all"?fOwner:"");fo.appendChild(oi);host.appendChild(fo);fo.hidden=!ownersList().length;
+  let dl=$("#ownersDl");if(!dl){dl=el("datalist");dl.id="ownersDl";document.body.appendChild(dl);}dl.innerHTML="";ownersList().forEach(o=>{const x=el("option");x.value=o;dl.appendChild(x);});
   const msg=el("div","err");msg.hidden=true;host.appendChild(msg);
   const actions=el("div","row-actions");
   const save=el("button",existing?"btn primary":"btn outline",existing?"Enregistrer":"Ajouter");save.type="button";save.style.flex="1";save.style.justifyContent="center";
@@ -740,7 +755,7 @@ function txForm(host,existing,done){
     const amount=parseFloat(String(ai.value).replace(/\s/g,"").replace(",","."));
     if(!(amount>0)){msg.className="err";msg.textContent="Entre un montant supérieur à 0.";msg.hidden=false;ai.focus();return;}
     const date=di.value||todayISO();
-    const rec={date,account:as.value,type,category:cat,label:li.value.trim()||cat,amount:Math.round(amount*100)/100,need:type==="Dépense"&&need?need:undefined};
+    const rec={date,account:as.value,type,category:cat,label:li.value.trim()||cat,amount:Math.round(amount*100)/100,need:type==="Dépense"&&need?need:undefined,owner:oi.value.trim()||undefined};
     if(existing){const ix=state.tx.findIndex(x=>x.id===existing.id);if(ix>=0)state.tx[ix]={...state.tx[ix],...rec};}
     else state.tx.push({id:uid_(),...rec});
     if(demo){demo=false;setStatus("");}
@@ -773,7 +788,7 @@ function openBudgets(){
 /* ---- export CSV ---- */
 async function exportCsv(){
   const q=v=>{const s=String(v==null?"":v);return/[";\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
-  const lines=["date;type;categorie;libelle;compte;montant"].concat(state.tx.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||"")).map(t=>[t.date,t.type,t.category,t.label,t.account,(t.type==="Dépense"?-t.amount:t.amount).toFixed(2).replace(".",",")].map(q).join(";")));
+  const lines=["date;type;categorie;libelle;compte;montant;personne"].concat(state.tx.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||"")).map(t=>[t.date,t.type,t.category,t.label,t.account,(t.type==="Dépense"?-t.amount:t.amount).toFixed(2).replace(".",","),t.owner||""].map(q).join(";")));
   const data="﻿"+lines.join("\n"),filename="mes-comptes-"+todayISO()+".csv";
   const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([data],{type:"text/csv"}));a.download=filename;a.click();
 }
@@ -832,14 +847,16 @@ function parseStatement(lines,fallbackYear){
   const pm=text.match(/(?:au|jusqu'au|arrêté au|et le)\s+(\d{1,2})[\/.](\d{1,2})[\/.](\d{4})/i);
   const endY=pm?+pm[3]:(typeof fallbackYear==="number"?fallbackYear:new Date().getFullYear()),endM=pm?+pm[2]:12;
   const yearOf=mo=>mo>endM+1?endY-1:endY;
+  const sections=accountSections();
   // 1) on repère les lignes d'opération (date + montant) et les lignes de texte entre elles
-  let cols=null;const seq=[];
+  let cols=null;const seq=[];let head=[];
   for(const ln of lines){
     const its=mergeAmounts(ln.items);if(!its.length)continue;
     const joined=its.map(i=>i.s).join(" ");
+    head.push(joined);
     if(/^(Renvoy|Date de début|Transactions (en attente|annulées))/i.test(joined)){cols=null;seq.push({brk:true});continue;} // opérations annulées/renvoyées : ignorées
     const oh=its.find(i=>OUT_H.test(i.s.trim())),ih=its.find(i=>IN_H.test(i.s.trim()));
-    if(oh&&ih){const bh=its.find(i=>BAL_H.test(i.s.trim()));cols={out:oh,in:ih,bal:bh||null};seq.push({brk:true});continue;}
+    if(oh&&ih){const bh=its.find(i=>BAL_H.test(i.s.trim()));cols={out:oh,in:ih,bal:bh||null};sections.enter(head);head=[];seq.push({brk:true});continue;}
     if(!cols)continue;
     const date=parseDateTxt(its[0].s.trim(),yearOf);
     if(date&&!/SOLDE AU|NOUVEAU SOLDE|ANCIEN SOLDE|SOLDE DE CL|SOLDE CR[ÉE]DITEUR|SOLDE D[ÉE]BITEUR|TOTAL DES OP/i.test(joined)){
@@ -850,7 +867,7 @@ function parseStatement(lines,fallbackYear){
         if(parseDateTxt(i.s.trim(),yearOf))return; // date de valeur
         labelParts.push(i.s.trim());
       });
-      seq.push(amt?{op:true,date,label:labelParts.join(" "),amount:amt,dir,page:ln.page,y:ln.y}:{brk:true});
+      seq.push(amt?{op:true,date,label:labelParts.join(" "),amount:amt,dir,page:ln.page,y:ln.y,sec:sections.cur}:{brk:true});head=[];
       continue;
     }
     if(its.some(i=>amountOf(i.s)!=null&&colOf(i,cols)!=="far")){seq.push({brk:true});continue;}
@@ -874,7 +891,31 @@ function parseStatement(lines,fallbackYear){
     block.push(s);
   });
   flush(null);
-  return out.map(o=>toOp(o.date,o.label,o.detail,o.amount,o.dir,account));
+  return out.map(o=>sections.apply(toOp(o.date,o.label,o.detail,o.amount,o.dir,account),o.sec));
+}
+// sections d'un même fichier : « Titulaire / Compte n° … » avant chaque tableau.
+// S'il y a au moins deux numéros de compte, chaque opération prend son compte (« Compte …3001 ») et son titulaire.
+function accountSections(){
+  const list=[];let cur=-1;
+  const CIV=/^(M\.?\s*OU\s*MME|M\.?\s*ET\s*MME|MME|MLLE|MR|MONSIEUR|MADAME|M\.?)\s+(?=\S)/i;
+  const pretty=h=>h.replace(CIV,"").trim().toLowerCase().replace(/(^|[\s\-'])(\p{L})/gu,(m,a,b)=>a+b.toUpperCase());
+  return{
+    get cur(){return cur;},
+    enter(headLines){
+      const k=headLines.findIndex(l=>/\bn[°o]\s*:?\s*\d{5,}/i.test(l));
+      if(k<0){if(cur<0){list.push({num:"",holder:"",kind:"Compte"});cur=0;}return;}
+      const num=headLines[k].match(/\bn[°o]\s*:?\s*(\d{5,})/i)[1];
+      let i=list.findIndex(x=>x.num===num);
+      if(i<0){const h=headLines.slice(0,k+1).reverse().find(l=>CIV.test(l.trim())&&!/\d{4,}/.test(l));
+        list.push({num,holder:h?pretty(h.trim()):"",kind:/livret|épargne|epargne/i.test(headLines[k])?"Livret":"Compte"});i=list.length-1;}
+      cur=i;
+    },
+    apply(op,sec){
+      const nums=new Set(list.filter(x=>x.num).map(x=>x.num));
+      const x=list[sec];if(nums.size<2||!x||!x.num)return op;
+      op.account=x.kind+" …"+x.num.slice(-4);if(x.holder)op.owner=x.holder;return op;
+    }
+  };
 }
 // « 1 » + « 234,56 » écrits côte à côte = 1 234,56
 function mergeAmounts(items){
@@ -926,31 +967,34 @@ function splitCsv(text){
 }
 // tableau (lignes de cellules) → opérations ; repère tout seul la ligne d'en-tête
 function parseTable(rows,fallbackYear,fileName){
-  const norm=c=>String(c==null?"":c).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").trim();
-  const hi=rows.findIndex(r=>r.some(c=>/^date/.test(norm(c)))&&r.some(c=>/libelle|description|label|intitule|operation|nature/.test(norm(c))));
-  if(hi<0)return null;
-  const h=rows[hi].map(norm);
-  const find=re=>h.findIndex(c=>re.test(c));
-  const iDate=find(/^date( d.?operation| operation| comptable)?$/)>=0?find(/^date( d.?operation| operation| comptable)?$/):find(/^date/);
-  const iLab=find(/libelle|description|label|intitule|nature/);
-  const iOut=find(/debit/),iIn=find(/credit/),iAmt=find(/^montant|^amount|^somme/),iType=find(/^type$/),iCat=find(/^categorie$/),iAcc=find(/^compte$/);
-  if(iDate<0||iLab<0||(iAmt<0&&(iOut<0||iIn<0)))return null;
-  const head=rows.slice(0,hi).map(r=>r.join(" ")).join(" ");
-  const account=detectAccount(head+" "+(fileName||""));
-  const out=[];
-  rows.slice(hi+1).forEach(r=>{
-    const date=parseCellDate(r[iDate],fallbackYear);if(!date)return;
+  const norm=c=>String(c==null?"":c).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").trim();
+  const isHead=r=>r.some(c=>/^date/.test(norm(c)))&&r.some(c=>/libelle|description|label|intitule|operation|nature/.test(norm(c)));
+  const sections=accountSections();const out=[];let col=null,head=[],account="Compte courant",firstHead=true;
+  rows.forEach(r=>{
+    if(isHead(r)){
+      const h=r.map(norm),find=re=>h.findIndex(c=>re.test(c));
+      const iDate=find(/^date( d.?operation| operation| comptable)?$/)>=0?find(/^date( d.?operation| operation| comptable)?$/):find(/^date/);
+      col={iDate,iLab:find(/libelle|description|label|intitule|nature/),iOut:find(/debit/),iIn:find(/credit/),iAmt:find(/^montant|^amount|^somme/),iType:find(/^type$/),iCat:find(/^categorie$/),iAcc:find(/^compte$/),iOwner:find(/^personne$/)};
+      if(col.iDate<0||col.iLab<0||(col.iAmt<0&&(col.iOut<0||col.iIn<0))){col=null;return;}
+      if(firstHead){account=detectAccount(head.join(" ")+" "+(fileName||""));firstHead=false;}
+      sections.enter(head);head=[];return;
+    }
+    if(!col){head.push(r.filter(c=>c!==""&&c!=null).join(" "));return;}
+    const date=parseCellDate(r[col.iDate],fallbackYear);
+    if(!date){const t=r.filter(c=>c!==""&&c!=null).join(" ");if(t)head.push(t);return;}
     let amt=null,dir=null;
-    if(iAmt>=0){const v=parseNum(r[iAmt]);if(v){amt=Math.abs(v);dir=v<0?"out":"in";}}
-    else{const d=parseNum(r[iOut]),c=parseNum(r[iIn]);if(d){amt=Math.abs(d);dir=d>0?"out":"in";}else if(c){amt=Math.abs(c);dir=c>0?"in":"out";}}
+    if(col.iAmt>=0){const v=parseNum(r[col.iAmt]);if(v){amt=Math.abs(v);dir=v<0?"out":"in";}}
+    else{const d=parseNum(r[col.iOut]),c=parseNum(r[col.iIn]);if(d){amt=Math.abs(d);dir=d>0?"out":"in";}else if(c){amt=Math.abs(c);dir=c>0?"in":"out";}}
     if(!amt)return;
-    const raw=String(r[iLab]||"").replace(/\s+/g," ").trim();
+    head=[];
+    const raw=String(r[col.iLab]||"").replace(/\s+/g," ").trim();
     const op=toOp(date,raw,[],amt,dir,account);
-    // export de cette app (colonnes type / catégorie / compte) : on reprend tel quel
-    if(iType>=0&&TYPES.includes(String(r[iType]).trim())){op.type=String(r[iType]).trim();op.label=raw||op.label;if(iCat>=0&&r[iCat])op.category=String(r[iCat]).trim();if(iAcc>=0&&r[iAcc])op.account=String(r[iAcc]).trim();}
-    out.push(op);
+    // export de cette app (colonnes type / catégorie / compte / personne) : on reprend tel quel
+    if(col.iType>=0&&TYPES.includes(String(r[col.iType]).trim())){op.type=String(r[col.iType]).trim();op.label=raw||op.label;if(col.iCat>=0&&r[col.iCat])op.category=String(r[col.iCat]).trim();if(col.iAcc>=0&&r[col.iAcc])op.account=String(r[col.iAcc]).trim();if(col.iOwner>=0&&r[col.iOwner])op.owner=String(r[col.iOwner]).trim();out.push([op,-1]);return;}
+    out.push([op,sections.cur]);
   });
-  return out;
+  // les comptes ne sont connus qu'à la fin du fichier
+  return firstHead?null:out.map(([o,k])=>k<0?o:sections.apply(o,k));
 }
 // OFX / QFX : format standard proposé par la plupart des banques (montants signés)
 function parseOfx(text){
@@ -1033,20 +1077,26 @@ function openImport(){
     }catch(e){status.textContent="";review.appendChild(el("div","err","La lecture a échoué. Essaie un autre format (OFX, CSV, Excel) ou ajoute à la main."));}
   }
   function showReview(rows){
-    const list=el("div","rev-list");const items=rows.map(r=>{const o={...r,account:r.account||"Compte courant",keep:true};list.appendChild(revItem(o));return o;});
+    // titulaires trouvés dans le fichier : on peut les renommer (ex. « Papa ») avant l'ajout
+    const who=[...new Set(rows.map(r=>r.owner).filter(Boolean))];
+    if(who.length){const box=el("div","imports");box.appendChild(el("div","eyebrow",who.length>1?"Personnes trouvées dans ce fichier":"Titulaire du compte"));
+      who.forEach((w,k)=>{const f=el("label","fld");f.appendChild(el("span",null,rows.filter(r=>r.owner===w).length+" opération(s) · "+[...new Set(rows.filter(r=>r.owner===w).map(r=>r.account))].join(", ")));
+        const i=el("input");i.id="who"+k;i.value=w;i.oninput=()=>{items.forEach(o=>{if(o.owner0===w)o.owner=i.value.trim()||w;});};f.appendChild(i);box.appendChild(f);});
+      review.appendChild(box);}
+    const list=el("div","rev-list");const items=rows.map(r=>{const o={...r,owner0:r.owner,account:r.account||"Compte courant",keep:true};list.appendChild(revItem(o));return o;});
     review.appendChild(list);
     const add=el("button","btn primary","Ajouter les opérations");add.style.marginTop="12px";add.style.justifyContent="center";add.style.width="100%";
-    add.onclick=()=>{let n=0,last=null;const impAt=todayISO();items.forEach(o=>{if(o.keep){state.tx.push({id:uid_(),date:o.date,account:o.account,type:o.type,category:o.category,label:o.label,amount:o.amount,file:o.file,impAt});n++;if(!last||o.date>last)last=o.date;}});if(n){demo=false;setStatus("");if(last)viewMonth=last.slice(0,7);persist();render();}closeModal();};
+    add.onclick=()=>{let n=0,last=null;const impAt=todayISO();items.forEach(o=>{if(o.keep){state.tx.push({id:uid_(),date:o.date,account:o.account,type:o.type,category:o.category,label:o.label,amount:o.amount,file:o.file,impAt,owner:o.owner||undefined});n++;if(!last||o.date>last)last=o.date;}});if(n){demo=false;setStatus("");if(last)viewMonth=last.slice(0,7);persist();render();}closeModal();};
     review.appendChild(add);
   }
   function revItem(o){
-    const it=el("div","rev-item"),hd=el("div","hd"),l=el("div","l",o.label);l.appendChild(el("div","d",o.date.split("-").reverse().join("/")));
+    const it=el("div","rev-item"),hd=el("div","hd"),l=el("div","l",o.label);l.appendChild(el("div","d",o.date.split("-").reverse().join("/")+(o.owner?" · "+o.owner:"")));
     const a=el("div","a");const paint=()=>{a.textContent=(o.type==="Dépense"?"−":o.type==="Revenu"?"+":"⇄ ")+money(o.amount,true);a.style.color=o.type==="Revenu"?"var(--pos)":o.type==="Virement interne"?"var(--transfer)":"var(--ink)";};paint();
     const rm=el("button","x","✕");rm.title="Ignorer cette ligne";rm.setAttribute("aria-label","Ignorer cette ligne");rm.onclick=()=>{o.keep=!o.keep;it.classList.toggle("off",!o.keep);rm.textContent=o.keep?"✕":"↺";};
     hd.appendChild(l);hd.appendChild(a);hd.appendChild(rm);it.appendChild(hd);
     const ctl=el("div","ctl"),tS=el("select"),cS=el("select"),aS=el("select");
     TYPES.forEach(tp=>{const op=el("option",null,tp);if(tp===o.type)op.selected=true;tS.appendChild(op);});
-    ACCOUNTS.forEach(ac=>{const op=el("option",null,ac);if(ac===o.account)op.selected=true;aS.appendChild(op);});
+    [...new Set(accountsList().concat([o.account]))].forEach(ac=>{const op=el("option",null,ac);if(ac===o.account)op.selected=true;aS.appendChild(op);});
     const fillC=()=>{cS.innerHTML="";(o.type==="Virement interne"?["Virement interne"]:o.type==="Revenu"?INC_CATS:EXP_CATS).forEach(c=>{const op=el("option",null,c);if(c===o.category)op.selected=true;cS.appendChild(op);});o.category=cS.value;};fillC();
     tS.onchange=()=>{o.type=tS.value;paint();fillC();};cS.onchange=()=>{o.category=cS.value;};aS.onchange=()=>{o.account=aS.value;};
     [tS,cS,aS].forEach(s=>s.setAttribute("aria-label","Modifier"));
@@ -1076,6 +1126,7 @@ $("#rangeSel").onchange=e=>{range=+e.target.value;savePrefs();render();};
 $("#catSel").onchange=e=>{fCat=e.target.value;render();};
 $("#typeSel").onchange=e=>{fType=e.target.value;savePrefs();render();};
 $("#accSel").onchange=e=>{fAcc=e.target.value;savePrefs();render();};
+$("#ownerSel").onchange=e=>{fOwner=e.target.value;fAcc="all";savePrefs();render();};
 $("#clearCat").onclick=()=>{fCat="all";render();};
 $("#avoidShow").onclick=()=>{fType="need";render();$(".moves").scrollIntoView({behavior:"smooth",block:"start"});};
 $("#wipeBtn").onclick=()=>{
