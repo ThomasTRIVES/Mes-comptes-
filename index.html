@@ -220,6 +220,8 @@ main{padding-block:16px 40px}
 @media(min-width:1181px){.moves{max-height:calc(100vh - 100px);position:sticky;top:calc(env(safe-area-inset-top,0px) + 78px);align-self:start}}
 .moves .filters{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px}
 .moves .filters select{font-size:.78rem;padding:5px 8px;border-radius:8px;flex:1;min-width:0}
+.moves .filters input{flex:1 1 100%;min-width:0;font:inherit;font-size:.8rem;color:var(--ink);background:var(--panel);border:1px solid var(--line-2);border-radius:8px;padding:6px 9px}
+.moves .filters input:not(:placeholder-shown){border-color:var(--accent)}
 .list{overflow:auto;min-height:0;margin-inline:-8px}
 .mv{display:flex;align-items:center;gap:10px;width:100%;border:0;background:transparent;text-align:left;padding:9px 8px;border-radius:10px}
 .mv:hover{background:var(--panel-2)}
@@ -367,6 +369,7 @@ main{padding-block:16px 40px}
         </select>
         <select id="catSel" aria-label="Catégorie"></select>
         <select id="accSel" aria-label="Compte"></select>
+        <input id="amtSearch" type="search" autocomplete="off" placeholder="Montant : 45,90 · 40-60 · >100 (ou un mot)" aria-label="Rechercher par montant ou par libellé">
       </div>
       <div class="list" id="list"></div>
     </section>
@@ -801,11 +804,32 @@ function renderSubs(){
   body.appendChild(sv);
 }
 let listIds=[];
+// recherche : « 45,90 » (montant exact), « 40-60 » / « 40 à 60 » (entre deux montants, bornes comprises),
+// « >100 », « <20 », « >=50 », « <=50 » ; sinon le texte est cherché dans le libellé, la catégorie, le compte, la personne
+let fSearch="";
+function searchPred(q){
+  q=String(q||"").trim();if(!q)return null;
+  const N="(\\d[\\d\\s.\\u00a0]*(?:[,.]\\d{1,2})?)",num=x=>{const v=parseNum(x);return v==null?null:Math.abs(v);};
+  let m=q.match(new RegExp("^"+N+"\\s*€?\\s*(?:-|–|à|a|\\.\\.)\\s*"+N+"\\s*€?$","i"));
+  if(m){let a=num(m[1]),b=num(m[2]);if(a!=null&&b!=null){if(a>b)[a,b]=[b,a];return t=>t.amount>=a-0.004&&t.amount<=b+0.004;}}
+  m=q.match(new RegExp("^(>=|<=|≥|≤|>|<)\\s*"+N+"\\s*€?$"));
+  if(m){const v=num(m[2]),op=m[1];if(v!=null)return t=>op===">"?t.amount>v+0.004:op==="<"?t.amount<v-0.004:/[>≥]/.test(op)?t.amount>=v-0.004:t.amount<=v+0.004;}
+  m=q.match(new RegExp("^[+\\-−]?\\s*"+N+"\\s*€?$"));
+  if(m){const v=num(m[1]);if(v!=null)return t=>Math.abs(t.amount-v)<0.005;}
+  const w=q.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"");
+  return t=>[t.label,t.category,t.account,t.owner].join(" ").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,"").includes(w);
+}
 function renderList(tx){
   const list=$("#list");list.innerHTML="";
-  const rows=tx.filter(t=>(fCat==="all"||catKey(t)===fCat)&&(fType==="all"||t.type===fType||(fType==="need"&&t.type==="Dépense"&&NEED[t.need]))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  $("#movesSub").textContent=rows.length?rows.length+" opération(s) · "+periodLabel():periodLabel();
-  if(!rows.length){list.appendChild(emptyBlock("Aucun mouvement","Change la période ou les filtres, ou ajoute une opération."));return;}
+  const sp=searchPred(fSearch);
+  const rows=tx.filter(t=>(!sp||sp(t))&&(fCat==="all"||catKey(t)===fCat)&&(fType==="all"||t.type===fType||(fType==="need"&&t.type==="Dépense"&&NEED[t.need]))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const tot=rows.reduce((s,t)=>s+(t.type==="Dépense"?-1:t.type==="Revenu"?1:0)*t.amount,0);
+  $("#movesSub").textContent=(rows.length?rows.length+(sp?" résultat(s)":" opération(s)")+" · ":"")+periodLabel()+(sp&&rows.length>1?" · total "+fmt(tot,true):"");
+  if(!rows.length){
+    if(sp){const w=emptyBlock("Aucun mouvement trouvé","Rien ne correspond à « "+fSearch.trim()+" » sur cette période et ces filtres.");
+      if(range!==0){const b=el("button","btn outline","Chercher sur tout l'historique");b.style.marginTop="10px";b.onclick=()=>{range=0;savePrefs();render();};w.appendChild(b);}
+      list.appendChild(w);return;}
+    list.appendChild(emptyBlock("Aucun mouvement","Change la période ou les filtres, ou ajoute une opération."));return;}
   let lastM="";
   listIds=rows.filter(t=>!t.demo).map(t=>t.id);
   rows.forEach(t=>{const m=(t.date||"").slice(0,7);if(range!==1&&m!==lastM){list.appendChild(el("div","day",MONTHS[+m.slice(5)-1]+" "+m.slice(0,4)));lastM=m;}list.appendChild(mvRow(t));});
@@ -1405,6 +1429,7 @@ $("#rangeSel").onchange=e=>{range=+e.target.value;savePrefs();render();};
 $("#catSel").onchange=e=>{fCat=e.target.value;render();};
 $("#typeSel").onchange=e=>{fType=e.target.value;savePrefs();render();};
 $("#accSel").onchange=e=>{fAcc=e.target.value;savePrefs();render();};
+$("#amtSearch").oninput=e=>{fSearch=e.target.value;render();};
 $("#ownerSel").onchange=e=>{fOwner=e.target.value;fAcc="all";savePrefs();render();};
 $("#clearCat").onclick=()=>{fCat="all";render();};
 $("#avoidShow").onclick=()=>{fType="need";render();$(".moves").scrollIntoView({behavior:"smooth",block:"start"});};
