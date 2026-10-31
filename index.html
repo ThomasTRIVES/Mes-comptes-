@@ -396,7 +396,9 @@ const TYPES=["Dépense","Revenu","Virement interne"];
 // catégories ajoutées par l'utilisateur (state.cats.exp / state.cats.inc), rangées avant « Autre »
 const catsOf=k=>{const c=(state.cats||{})[k];return Array.isArray(c)?c:[];};
 // ordre alphabétique partout (accents et majuscules ignorés)
-const byFr=(a,b)=>a.localeCompare(b,"fr",{sensitivity:"base"});
+// « Autre » et « Autre revenu » toujours en fin de liste
+const isAutre=c=>/^autre( revenu)?$/i.test(String(c).trim());
+const byFr=(a,b)=>(isAutre(a)-isAutre(b))||a.localeCompare(b,"fr",{sensitivity:"base"});
 const expCats=()=>EXP_CATS.concat(catsOf("exp")).sort(byFr);
 const incCats=()=>INC_CATS.concat(catsOf("inc")).sort(byFr);
 const allCats=()=>expCats().concat(incCats(),["Virement interne"]);
