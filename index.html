@@ -191,6 +191,8 @@ main{padding-block:16px 40px}
 .savings strong{color:var(--accent)}
 .seg.need button.eviter[aria-pressed="true"]{border-color:var(--neg);color:var(--neg);background:color-mix(in srgb,var(--neg) 10%,transparent)}
 .mv .t .tag{margin-left:7px}
+.tag.refund{background:color-mix(in srgb,var(--pos) 16%,transparent);color:var(--pos)}
+.seg.types{flex-wrap:wrap}.seg.types button{flex:1 1 40%;white-space:nowrap}
 .seg.need{flex-wrap:wrap}.seg.need button{flex:1 1 auto;white-space:nowrap}
 .empty span{display:block}
 
@@ -364,6 +366,7 @@ main{padding-block:16px 40px}
           <option value="all">Tous</option>
           <option value="Dépense">Dépenses</option>
           <option value="Revenu">Revenus</option>
+          <option value="Remboursement">Remboursements</option>
           <option value="Virement interne">Virements</option>
           <option value="need">Évitables</option>
         </select>
@@ -395,7 +398,10 @@ const SHORT=["janv","févr","mars","avr","mai","juin","juil","août","sept","oct
 const EXP_CATS=["Alimentation","Logement","Transport","Abonnements","Restau & sorties","Santé","Shopping","Sport","Voyages","Retrait cash","Frais pro","Autre"];
 const INC_CATS=["Salaire","Auto-entreprise","Aides (APL/prime)","Remboursement","Autre revenu"];
 const ACCOUNTS=["Compte courant","Revolut","Livret","Espèces","Autre"];
-const TYPES=["Dépense","Revenu","Virement interne"];
+const TYPES=["Dépense","Revenu","Remboursement","Virement interne"];
+// « Remboursement » (avoir, retour en magasin, mutuelle…) : catégories de dépenses, compté comme une dépense en moins
+const spentOf=t=>t.type==="Dépense"?+t.amount||0:t.type==="Remboursement"?-(+t.amount||0):0;
+const isSpend=t=>t.type==="Dépense"||t.type==="Remboursement";
 // catégories ajoutées par l'utilisateur (state.cats.exp / state.cats.inc), rangées avant « Autre »
 const catsOf=k=>{const c=(state.cats||{})[k];return Array.isArray(c)?c:[];};
 // ordre alphabétique partout (accents et majuscules ignorés)
@@ -407,11 +413,11 @@ const incCats=()=>INC_CATS.concat(catsOf("inc")).sort(byFr);
 const allCats=()=>expCats().concat(incCats(),["Virement interne"]);
 const cleanCat=n=>String(n||"").replace(/\s+/g," ").trim().slice(0,40);
 // dépenses et revenus ont chacun leurs catégories ; un même nom peut exister des deux côtés
-const kindOfType=t=>t==="Revenu"?"inc":t==="Dépense"?"exp":null;
+const kindOfType=t=>t==="Revenu"?"inc":(t==="Dépense"||t==="Remboursement")?"exp":null;
 const catsFor=kind=>kind==="inc"?incCats():expCats();
 const typeOfKind=k=>k==="inc"?"Revenu":"Dépense";
 // clé de filtre « type|catégorie » : « Sport » en dépense ≠ « Sport » en revenu
-const catKey=t=>(t.type==="Revenu"?"R|":t.type==="Dépense"?"D|":"V|")+t.category;
+const catKey=t=>(t.type==="Revenu"?"R|":isSpend(t)?"D|":"V|")+t.category;
 // ajoute une catégorie au domaine (ou renvoie celle qui y existe déjà sous ce nom)
 function addCat(kind,name){
   name=cleanCat(name);if(!name||/^virement interne$/i.test(name))return null;
@@ -708,7 +714,7 @@ function render(){
   fillFilters();
   const[,e]=rangeBounds();$("#mLabel").textContent=MONTHS[e%12]+" "+Math.floor(e/12);
   const tx=periodTx();
-  const rev=sum(tx,"Revenu"),dep=sum(tx,"Dépense"),sav=rev-dep;
+  const rev=sum(tx,"Revenu"),dep=tx.reduce((s,t)=>s+spentOf(t),0),sav=rev-dep;
   const suffix=range===1?" du mois":range===0?"":" · "+range+" mois";
   $("#kRevL").textContent="Revenus"+suffix;$("#kDepL").textContent="Dépenses"+suffix;
   $("#kRev").textContent=fmt(rev);$("#kDep").textContent=fmt(dep);
@@ -722,7 +728,9 @@ function render(){
   renderDonut(tx,dep);renderBars();renderBudgets();renderAvoid(tx,dep);renderSubs();renderList(tx);
 }
 function renderDonut(tx,dep){
-  const by={};tx.filter(t=>t.type==="Dépense").forEach(t=>{by[t.category]=(by[t.category]||0)+(+t.amount||0);});
+  const by0={};tx.filter(isSpend).forEach(t=>{by0[t.category]=(by0[t.category]||0)+spentOf(t);});
+  // une catégorie entièrement remboursée (net ≤ 0) n'apparaît pas dans le graphique
+  const by={};Object.entries(by0).forEach(([c,v])=>{if(v>0.005)by[c]=v;});dep=Object.values(by).reduce((s,v)=>s+v,0);
   // la légende liste toutes les catégories ; le graphique regroupe les plus petites dans un seul secteur (même couleur)
   const all=Object.entries(by).sort((a,b)=>b[1]-a[1]),many=all.length>RAMP;
   const colorOf=i=>"var(--c"+(many&&i>=RAMP-1?RAMP:i+1)+")";
@@ -747,8 +755,8 @@ function renderDonut(tx,dep){
   body.appendChild(lg);
 }
 function renderBars(){
-  const e=mIdx(viewMonth),src=baseTx().filter(t=>t.type==="Dépense"&&inScope(t)),vals=[];
-  for(let i=5;i>=0;i--){const ym=ymOf(e-i);vals.push([ym,src.filter(t=>(t.date||"").startsWith(ym)).reduce((s,t)=>s+(+t.amount||0),0)]);}
+  const e=mIdx(viewMonth),src=baseTx().filter(t=>isSpend(t)&&inScope(t)),vals=[];
+  for(let i=5;i>=0;i--){const ym=ymOf(e-i);vals.push([ym,Math.max(0,src.filter(t=>(t.date||"").startsWith(ym)).reduce((s,t)=>s+spentOf(t),0))]);}
   const max=Math.max(...vals.map(v=>v[1]),1);
   $("#monthsMax").textContent="";
   const bars=$("#bars");bars.innerHTML="";
@@ -761,7 +769,7 @@ function renderBars(){
 function renderBudgets(){
   const bud=budgets(),list=$("#budList");list.innerHTML="";
   $("#budSub").textContent=MONTHS[+viewMonth.slice(5)-1]+" · se remet à zéro chaque mois";
-  const spent={};baseTx().filter(t=>t.type==="Dépense"&&inScope(t)&&(t.date||"").startsWith(viewMonth)).forEach(t=>{spent[t.category]=(spent[t.category]||0)+(+t.amount||0);});
+  const spent={};baseTx().filter(t=>isSpend(t)&&inScope(t)&&(t.date||"").startsWith(viewMonth)).forEach(t=>{spent[t.category]=(spent[t.category]||0)+spentOf(t);});Object.keys(spent).forEach(c=>{if(spent[c]<0)spent[c]=0;});
   const names=expCats().filter(c=>bud[c]>0);
   $("#editBud").hidden=showDemo();
   if(!names.length){const w=emptyBlock("Aucun budget défini","Fixe un plafond mensuel par catégorie pour voir où tu en es.");if(!showDemo()){const b=el("button","btn outline","Définir mes budgets");b.style.marginTop="10px";b.onclick=openBudgets;w.appendChild(b);}list.appendChild(w);return;}
@@ -829,7 +837,7 @@ function renderList(tx){
   const list=$("#list");list.innerHTML="";
   const sp=searchPred(fSearch);
   const rows=tx.filter(t=>(!sp||sp(t))&&(fCat==="all"||catKey(t)===fCat)&&(fType==="all"||t.type===fType||(fType==="need"&&t.type==="Dépense"&&NEED[t.need]))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  const tot=rows.reduce((s,t)=>s+(t.type==="Dépense"?-1:t.type==="Revenu"?1:0)*t.amount,0);
+  const tot=rows.reduce((s,t)=>s+(t.type==="Dépense"?-1:(t.type==="Revenu"||t.type==="Remboursement")?1:0)*t.amount,0);
   $("#movesSub").textContent=(rows.length?rows.length+(sp?" résultat(s)":" opération(s)")+" · ":"")+periodLabel()+(sp&&rows.length>1?" · total "+fmt(tot,true):"");
   if(!rows.length){
     if(sp){const w=emptyBlock("Aucun mouvement trouvé","Rien ne correspond à « "+fSearch.trim()+" » sur cette période et ces filtres.");
@@ -844,10 +852,11 @@ function mvRow(t){
   const b=el("button","mv"+(t.demo?" demo":""));const main=el("div","main");
   const ttl=el("div","t",t.type==="Virement interne"?(t.label||"Virement interne"):t.category);
   if(t.type==="Dépense"&&NEED[t.need])ttl.appendChild(el("span","tag "+t.need,NEED[t.need]));
+  if(t.type==="Remboursement")ttl.appendChild(el("span","tag refund","remboursement"));
   main.appendChild(ttl);
   const sub=[dayLabel(t.date||"")];if(t.type!=="Virement interne"&&t.label&&t.label!==t.category)sub.push(t.label);if(t.account&&t.account!=="Compte courant")sub.push(t.account);if(t.owner&&fOwner==="all"&&ownersList().length>1)sub.push(t.owner);
   main.appendChild(el("div","s",sub.join(" · ")));b.appendChild(main);
-  const cls=t.type==="Dépense"?"":t.type==="Revenu"?" rev":" tr",sign=t.type==="Dépense"?"− ":t.type==="Revenu"?"+ ":"⇄ ";
+  const cls=t.type==="Dépense"?"":(t.type==="Revenu"||t.type==="Remboursement")?" rev":" tr",sign=t.type==="Remboursement"?"↩ +\u202f":t.type==="Dépense"?"− ":t.type==="Revenu"?"+ ":"⇄ ";
   b.appendChild(el("span","amt"+cls,sign+money(+t.amount||0,true)));
   if(t.demo)b.onclick=()=>{const m=modal("Données d'exemple");m.appendChild(el("p","note","Cette ligne est un exemple pour montrer à quoi ressemble la page : elle n'est pas enregistrée et ne compte pas dans tes comptes. Ajoute ta première opération ou importe un relevé et tous les exemples disparaissent."));const h=el("button","btn primary","Masquer les exemples");h.style.justifyContent="center";h.onclick=()=>{closeModal();hideDemo();};m.appendChild(h);};else b.onclick=()=>openEdit(t);
   return b;
@@ -861,7 +870,8 @@ function txForm(host,existing,done){
   const t=existing||{type:"Dépense",date:todayISO(),amount:"",label:"",category:"Alimentation",account:"Compte courant"};
   let type=t.type,cat=t.category;
   const seg=el("div","seg");
-  [["Dépense","Dépense"],["Revenu","Revenu"],["Virement interne","Virement"]].forEach(([tp,lab])=>{const bt=el("button",null,lab);bt.type="button";bt.setAttribute("aria-pressed",tp===type);bt.onclick=()=>{type=tp;[...seg.children].forEach((c,i)=>c.setAttribute("aria-pressed",TYPES[i]===tp));fillChips();};seg.appendChild(bt);});
+  seg.classList.add("types");
+  [["Dépense","Dépense"],["Revenu","Revenu"],["Remboursement","Remboursement"],["Virement interne","Virement"]].forEach(([tp,lab])=>{const bt=el("button",null,lab);bt.type="button";bt.dataset.t=tp;bt.title=tp==="Remboursement"?"Avoir, retour en magasin, mutuelle… : une dépense en moins":"";bt.setAttribute("aria-pressed",tp===type);bt.onclick=()=>{type=tp;[...seg.children].forEach(c=>c.setAttribute("aria-pressed",c.dataset.t===tp));fillChips();};seg.appendChild(bt);});
   host.appendChild(seg);
   const amt=el("label","amount");const ai=el("input");ai.id=existing?"editAmount":"addAmount";ai.inputMode="decimal";ai.placeholder="0";ai.autocomplete="off";ai.setAttribute("aria-label","Montant en euros");if(existing)ai.value=String(t.amount).replace(".",",");amt.appendChild(ai);amt.appendChild(el("span",null,"€"));host.appendChild(amt);
   const chips=el("div","chips");chips.setAttribute("role","group");chips.setAttribute("aria-label","Catégorie");host.appendChild(chips);
@@ -1048,13 +1058,13 @@ function detectAccount(head){
 // début d'une opération : le libellé commence par un type d'opération connu
 const OP_START=/^(Paiement|Virement|Vir\b|Prélèvement|Prelevement|Prlv|Remboursement de pr|Chèque|Cheque|Retrait|Carte\b|CB\b|Avoir|TDF|Frais|Cotisation|Intérêts|Interets|Echéance|Échéance|Versement|Remise)/i;
 // préfixes de libellés à retirer pour garder le nom du commerçant ou de la personne
-const OP_PREFIX=/^\s*(Paiement par carte|Paiement CB|Achat CB|Virement en votre faveur|Virement émis|Virement emis|Virement permanent|Prélèvement|Prelevement|Retrait au distributeur|Retrait)\s*-\s*/i;
+const OP_PREFIX=/^\s*(Avoir|Paiement par carte|Paiement CB|Achat CB|Virement en votre faveur|Virement émis|Virement emis|Virement permanent|Prélèvement|Prelevement|Retrait au distributeur|Retrait)\s*-\s*/i;
 function cleanLabel(s){
   let t=String(s).replace(/\s+/g," ").trim();
   // Crédit Agricole : « … 29/10 - IKEA » → le nom propre du commerçant est après la date
   const ca=t.match(/\b\d{2}\/\d{2}\s+-\s+(.+)$/);
-  if(ca&&(OP_PREFIX.test(t)||/^(PAIEMENT|ACHAT|CARTE|CB)\b/i.test(t)))t=ca[1];
-  else{if(OP_PREFIX.test(t))t=t.replace(OP_PREFIX,"").replace(/^X\d{4}\s+/i,"").replace(/^VIR(EMENT)?(\s+(INST|SEPA))?(\s+(de|DE))?\s+/,"");
+  if(ca&&(OP_PREFIX.test(t)||/^(PAIEMENT|ACHAT|CARTE|CB|AVOIR)\b/i.test(t)))t=ca[1];
+  else{if(OP_PREFIX.test(t))t=t.replace(OP_PREFIX,"").replace(/^(CARTE\s+)?X\d{4}\s+/i,"").replace(/^VIR(EMENT)?(\s+(INST|SEPA))?(\s+(de|DE))?\s+/,"");
     const first=t.split(/\s+-\s+/)[0];if(first.length>=3)t=first;} // « nom - motif » : on garde le nom
   return t.replace(/^\s*(PAIEMENT PAR CARTE|PAIEMENT CB|ACHAT CB|CB)\s+(X\d{4}\s+)?/i,"").replace(/\s+\d{2}[\/.]\d{2}(?:[\/.]\d{2,4})?\s*$/,"").replace(/\b(CARTE|AVOIR|TDF EMIS VIA CB)\s+\d{2}\/\d{2}\/\d{2}\b/gi,"").replace(/\bCB\*\d+\b/gi,"").replace(/^\s*(VIREMENT EN VOTRE FAVEUR|VIR(EMENT)?\s+(SEPA|INST)|VIREMENT|VIR|PRLV SEPA|PRLV|PRELEVEMENT|PRÉLÈVEMENT)\b/i,"")
     .replace(/\s+\d+,?\d*\s*$/,"").replace(/\s+/g," ").trim().slice(0,60)||"Opération";
@@ -1064,7 +1074,9 @@ function toOp(date,raw,detail,amount,dir,account){
   const up=(raw+" "+detail.join(" ")).toUpperCase();
   let type=dir==="out"?"Dépense":"Revenu";
   if(INTERNAL_RE.test(raw.toUpperCase())||isSelf(raw.toUpperCase()))type="Virement interne"; // sur le libellé seul : les références contiennent souvent ton nom
-  return{date,label:cleanLabel(raw),amount:Math.round(amount*100)/100,type,category:guessCat(up,type),account,dir};
+  // argent qui revient d'un achat (avoir, retour, mutuelle, sécu) : remboursement, rangé dans la catégorie de la dépense
+  else if(type==="Revenu"&&/(^|\s)AVOIR\b|\bREMBOURS(?!EMENT DE PR)|\bREFUND|\bMGEN\b|\bCPAM\b|AMELI|ASSURANCE MALADIE|MUTUELLE/.test(up))type="Remboursement";
+  return{date,label:cleanLabel(raw),amount:Math.round(amount*100)/100,type,category:guessCat(up,type==="Remboursement"?"Dépense":type),account,dir};
 }
 const isNoise=t=>/^(R[èe]f|RUM|Carte\s*:|Taux)/i.test(t)||(/^[\dA-Z\-.\/ ]{10,}$/.test(t)&&/\d{6,}/.test(t));
 /* lines : [{page,y,items:[{s,x,r}]}] triées ; renvoie les opérations du relevé */
@@ -1209,7 +1221,7 @@ function colOf(it,cols){
 function guessCat(up,type){
   if(type==="Virement interne")return"Virement interne";
   if(type==="Revenu"){if(/FRAIS PRO/.test(up))return"Remboursement";if(/SALAIRE|\bPAIE\b|PAYES|REMUNERATION|RÉMUNÉRATION|RETRAITE|PENSION|CARSAT|AGIRC|ARRCO|GROUPEMENT D'EMPLOYEURS|JDA|HANDBALL|UNIVERSIT/.test(up))return"Salaire";if(/URSSAF|CLIENT|FACTURE/.test(up))return"Auto-entreprise";if(/\bCAF\b|APL|PRIME|ALLOC/.test(up))return"Aides (APL/prime)";if(/REMBOURS|AVOIR|^REFUND|MGEN|MUTUELLE|CPAM|AMELI|ASSURANCE MALADIE/.test(up))return"Remboursement";return"Autre revenu";}
-  const map=[[/REMBOURSEMENT DE PR[ÊE]T|ECHEANCE PR[ÊE]T|LOYER|AGENCE|IMMO|ORPI|DEVOSNE|EDF|ENGIE|VEOLIA|LEROY MERLIN|CASTORAMA|BRICO/,"Logement"],[/CARREFOUR(?! BANQUE)|LECLERC|LIDL|AUCHAN|MONOPRIX|MONOP|INTERMARCHE|CASINO|FRANPRIX|SUPER U|U EXPRESS|PICARD|BIOCOOP|ALDI|MARCHE PLUS|NESPRESSO|MAXICOFFEE|GRAIN DE CASSIS|SELECTA/,"Alimentation"],[/UBER EATS|DELIVEROO|RESTAU|MCDO|KFC|BURGER|BAR |CAFE|CAFÉ|BRASSERIE|BOULANGERIE|PIZZ|SUSHI|SAKANA|IZLY|AREAS|VITA AL DENTE|FOOD|GASTON/,"Restau & sorties"],[/BOOKING|HOTEL|HÔTEL|IBIS|EDREAMS|AIRBNB|GETYOURGUIDE|RYANAIR|EASYJET|AIR FRANCE/,"Voyages"],[/SNCF|OUIGO|TGV|TER |UBER|BLABLA|ESSENCE|TOTAL|STATION|PARKING|VOIRIE|EFFIA|DIVIA|MOBILIT|MÉTROPOLE|METROPOLE|\bSPL\b|NAVIGO|RATP|TRAINLINE|TRANSDEV|ULYS|PEAGE|PÉAGE|\bTAN\b|\bTAM\b/,"Transport"],[/NETFLIX|SPOTIFY|DEEZER|CANAL|DISNEY|YOUTUBE|ABONNEMENT|APPLE\.COM|ICLOUD|GOOGLE|FREE MOBILE|ORANGE|SFR|BOUYGUES|SOSH/,"Abonnements"],[/PHARMA|DOCTEUR|MEDECIN|MUTUELLE|OPTIC|DENTAIRE|LABO|HOPITAL|IHERB/,"Santé"],[/DECATHLON|FITNESS|BASIC ?FIT|KLUBE|SALLE DE SPORT/,"Sport"],[/ZARA|H&M|AMAZON|FNAC|ZALANDO|NIKE|ADIDAS|SHEIN|VINTED|UNIQLO|KIABI|AYBL|BARBER|IKEA|BOULANGER\b/,"Shopping"],[/RETRAIT|DAB|DISTRIB/,"Retrait cash"]];
+  const map=[[/REMBOURSEMENT DE PR[ÊE]T|ECHEANCE PR[ÊE]T|LOYER|AGENCE|IMMO|ORPI|DEVOSNE|EDF|ENGIE|VEOLIA|LEROY MERLIN|CASTORAMA|BRICO/,"Logement"],[/CARREFOUR(?! BANQUE)|LECLERC|LIDL|AUCHAN|MONOPRIX|MONOP|INTERMARCHE|CASINO|FRANPRIX|SUPER U|U EXPRESS|PICARD|BIOCOOP|ALDI|MARCHE PLUS|NESPRESSO|MAXICOFFEE|GRAIN DE CASSIS|SELECTA/,"Alimentation"],[/UBER EATS|DELIVEROO|RESTAU|MCDO|KFC|BURGER|BAR |CAFE|CAFÉ|BRASSERIE|BOULANGERIE|PIZZ|SUSHI|SAKANA|IZLY|AREAS|VITA AL DENTE|FOOD|GASTON/,"Restau & sorties"],[/BOOKING|HOTEL|HÔTEL|IBIS|EDREAMS|AIRBNB|GETYOURGUIDE|RYANAIR|EASYJET|AIR FRANCE/,"Voyages"],[/SNCF|OUIGO|TGV|TER |UBER|BLABLA|ESSENCE|TOTAL|STATION|PARKING|VOIRIE|EFFIA|DIVIA|MOBILIT|MÉTROPOLE|METROPOLE|\bSPL\b|NAVIGO|RATP|TRAINLINE|TRANSDEV|ULYS|PEAGE|PÉAGE|\bTAN\b|\bTAM\b/,"Transport"],[/NETFLIX|SPOTIFY|DEEZER|CANAL|DISNEY|YOUTUBE|ABONNEMENT|APPLE\.COM|ICLOUD|GOOGLE|FREE MOBILE|ORANGE|SFR|BOUYGUES|SOSH/,"Abonnements"],[/PHARMA|DOCTEUR|MEDECIN|MUTUELLE|MGEN|CPAM|AMELI|ASSURANCE MALADIE|OPTIC|DENTAIRE|LABO|HOPITAL|IHERB/,"Santé"],[/DECATHLON|FITNESS|BASIC ?FIT|KLUBE|SALLE DE SPORT/,"Sport"],[/ZARA|H&M|AMAZON|FNAC|ZALANDO|NIKE|ADIDAS|SHEIN|VINTED|UNIQLO|KIABI|AYBL|BARBER|IKEA|BOULANGER\b/,"Shopping"],[/RETRAIT|DAB|DISTRIB/,"Retrait cash"]];
   for(const[re,c]of map)if(re.test(up))return c;return"Autre";
 }
 
@@ -1391,7 +1403,7 @@ function openImport(){
   }
   function revItem(o){
     const it=el("div","rev-item"),hd=el("div","hd"),l=el("div","l",o.label);l.appendChild(el("div","d",o.date.split("-").reverse().join("/")+(o.owner?" · "+o.owner:"")));
-    const a=el("div","a");const paint=()=>{a.textContent=(o.type==="Dépense"?"−":o.type==="Revenu"?"+":"⇄ ")+money(o.amount,true);a.style.color=o.type==="Revenu"?"var(--pos)":o.type==="Virement interne"?"var(--transfer)":"var(--ink)";};paint();
+    const a=el("div","a");const paint=()=>{a.textContent=(o.type==="Dépense"?"−":o.type==="Revenu"?"+":o.type==="Remboursement"?"↩ +":"⇄ ")+money(o.amount,true);a.style.color=(o.type==="Revenu"||o.type==="Remboursement")?"var(--pos)":o.type==="Virement interne"?"var(--transfer)":"var(--ink)";};paint();
     const rm=el("button","x","✕");rm.title="Ignorer cette ligne";rm.setAttribute("aria-label","Ignorer cette ligne");rm.onclick=()=>{o.keep=!o.keep;it.classList.toggle("off",!o.keep);rm.textContent=o.keep?"✕":"↺";};
     hd.appendChild(l);hd.appendChild(a);hd.appendChild(rm);it.appendChild(hd);
     const ctl=el("div","ctl"),tS=el("select"),cS=el("select"),aS=el("select");
