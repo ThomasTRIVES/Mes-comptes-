@@ -387,25 +387,32 @@ const expCats=()=>EXP_CATS.slice(0,-1).concat(catsOf("exp"),["Autre"]);
 const incCats=()=>INC_CATS.slice(0,-1).concat(catsOf("inc"),["Autre revenu"]);
 const allCats=()=>expCats().concat(incCats(),["Virement interne"]);
 const cleanCat=n=>String(n||"").replace(/\s+/g," ").trim().slice(0,40);
-// ajoute une catégorie (ou renvoie celle qui existe déjà sous ce nom)
+// dépenses et revenus ont chacun leurs catégories ; un même nom peut exister des deux côtés
+const kindOfType=t=>t==="Revenu"?"inc":t==="Dépense"?"exp":null;
+const catsFor=kind=>kind==="inc"?incCats():expCats();
+const typeOfKind=k=>k==="inc"?"Revenu":"Dépense";
+// clé de filtre « type|catégorie » : « Sport » en dépense ≠ « Sport » en revenu
+const catKey=t=>(t.type==="Revenu"?"R|":t.type==="Dépense"?"D|":"V|")+t.category;
+// ajoute une catégorie au domaine (ou renvoie celle qui y existe déjà sous ce nom)
 function addCat(kind,name){
   name=cleanCat(name);if(!name||/^virement interne$/i.test(name))return null;
-  const hit=allCats().find(c=>c.toLowerCase()===name.toLowerCase());if(hit)return hit;
+  const hit=catsFor(kind).find(c=>c.toLowerCase()===name.toLowerCase());if(hit)return hit;
   state.cats=state.cats||{};state.cats[kind]=catsOf(kind).concat([name]);persist();return name;
 }
 function renameCat(kind,from,to){
   to=cleanCat(to);if(!to||to===from)return from;
-  if(allCats().some(c=>c.toLowerCase()===to.toLowerCase()&&c!==from))return from;
+  if(catsFor(kind).some(c=>c.toLowerCase()===to.toLowerCase()&&c!==from))return from;
+  const ty=typeOfKind(kind),pre=kind==="inc"?"R|":"D|";
   state.cats[kind]=catsOf(kind).map(c=>c===from?to:c);
-  state.tx.forEach(t=>{if(t.category===from)t.category=to;});
-  if(state.budgets[from]!=null){state.budgets[to]=state.budgets[from];delete state.budgets[from];}
-  if(fCat===from)fCat=to;persist();return to;
+  state.tx.forEach(t=>{if(t.type===ty&&t.category===from)t.category=to;});
+  if(kind==="exp"&&state.budgets[from]!=null){state.budgets[to]=state.budgets[from];delete state.budgets[from];}
+  if(fCat===pre+from)fCat=pre+to;persist();return to;
 }
 function removeCat(kind,name){
-  const fb=kind==="inc"?"Autre revenu":"Autre";
+  const ty=typeOfKind(kind),fb=kind==="inc"?"Autre revenu":"Autre";
   state.cats[kind]=catsOf(kind).filter(c=>c!==name);
-  state.tx.forEach(t=>{if(t.category===name)t.category=fb;});
-  delete state.budgets[name];if(fCat===name)fCat="all";persist();
+  state.tx.forEach(t=>{if(t.type===ty&&t.category===name)t.category=fb;});
+  if(kind==="exp")delete state.budgets[name];if(fCat===(kind==="inc"?"R|":"D|")+name)fCat="all";persist();
 }
 const RAMP=8;
 const uid_=()=>Date.now().toString(36)+Math.random().toString(36).slice(2,7);
@@ -587,7 +594,7 @@ function restoreCsv(text){
   lines.slice(1).forEach(l=>{const[date,type,category,label,account,m,owner]=cells(l);const amount=Math.abs(parseFloat(String(m).replace(/\s/g,"").replace(",",".")));
     if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!(amount>0)||!TYPES.includes(type))return;
     const r={id:uid_(),date,type,category:category||"Autre",label:label||category,account:account||"Compte courant",amount:Math.round(amount*100)/100,owner:owner||undefined};
-    const k=key(r);if(have[k]>0){have[k]--;return;}if(type!=="Virement interne"&&!allCats().includes(r.category))addCat(type==="Revenu"?"inc":"exp",r.category);state.tx.push(r);n++;});
+    const k=key(r);if(have[k]>0){have[k]--;return;}if(type!=="Virement interne"&&!catsFor(kindOfType(type)).includes(r.category))addCat(kindOfType(type),r.category);state.tx.push(r);n++;});
   if(n){demo=false;setStatus("");persist();render();}
   return n;
 }
@@ -624,7 +631,12 @@ function periodLabel(){const[s,e]=rangeBounds();if(range===1)return MONTHS[e%12]
 
 /* ---- rendu ---- */
 function fillFilters(){
-  const cs=$("#catSel");cs.innerHTML="";const co=el("option",null,"Catégories");co.value="all";cs.appendChild(co);allCats().forEach(c=>{const o=el("option",null,c);o.value=c;cs.appendChild(o);});
+  const cs=$("#catSel");cs.innerHTML="";const co=el("option",null,"Catégories");co.value="all";cs.appendChild(co);
+  [["D|","Dépenses","Dépense",expCats()],["R|","Revenus","Revenu",incCats()]].forEach(([pre,label,ty,list])=>{
+    const extra=[...new Set(baseTx().filter(t=>t.type===ty&&!list.includes(t.category)).map(t=>t.category))];
+    const g=document.createElement("optgroup");g.label=label;list.concat(extra).forEach(c=>{const o=el("option",null,c);o.value=pre+c;g.appendChild(o);});cs.appendChild(g);});
+  const vo=el("option",null,"Virement interne");vo.value="V|Virement interne";cs.appendChild(vo);
+  if(fCat!=="all"&&!/^[DRV]\|/.test(fCat))fCat="all";
   const opt=(v,l)=>{const o=el("option",null,l);o.value=v;return o;};
   const accs=accountsList();if(fAcc!=="all"&&!accs.includes(fAcc))fAcc="all";
   const as=$("#accSel");as.innerHTML="";as.appendChild(opt("all","Comptes"));accs.forEach(c=>as.appendChild(opt(c,c)));
@@ -660,14 +672,14 @@ function renderDonut(tx,dep){
   body.style.display="";
   const R=48,C=2*Math.PI*R,gap=cats.length>1?1.4:0;
   let off=0,svg=`<svg viewBox="0 0 120 120" role="img" aria-label="Répartition des dépenses"><circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--panel-2)" stroke-width="15"/>`;
-  cats.forEach(([n,v],i)=>{const len=Math.max(0,v/dep*C-gap);const dim=fCat!=="all"&&fCat!==n;svg+=`<circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--c${i+1})" stroke-width="15" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)" opacity="${dim?.25:1}"/>`;off+=v/dep*C;});
-  const shown=fCat!=="all"&&by[fCat]!=null?by[fCat]:dep;
-  svg+=`<text x="60" y="60" text-anchor="middle" fill="var(--ink)" style="font:700 15px var(--display)">${money(shown).replace(/&/g,"&amp;")}</text><text x="60" y="75" text-anchor="middle" fill="var(--muted)" style="font:500 8px var(--font)">${fCat!=="all"&&by[fCat]!=null?"dans cette catégorie":"dépensé"}</text></svg>`;
+  cats.forEach(([n,v],i)=>{const len=Math.max(0,v/dep*C-gap);const dim=fCat!=="all"&&fCat!=="D|"+n;svg+=`<circle cx="60" cy="60" r="${R}" fill="none" stroke="var(--c${i+1})" stroke-width="15" stroke-dasharray="${len} ${C-len}" stroke-dashoffset="${-off}" transform="rotate(-90 60 60)" opacity="${dim?.25:1}"/>`;off+=v/dep*C;});
+  const selD=fCat.startsWith("D|")?fCat.slice(2):null;const shown=selD&&by[selD]!=null?by[selD]:dep;
+  svg+=`<text x="60" y="60" text-anchor="middle" fill="var(--ink)" style="font:700 15px var(--display)">${money(shown).replace(/&/g,"&amp;")}</text><text x="60" y="75" text-anchor="middle" fill="var(--muted)" style="font:500 8px var(--font)">${selD&&by[selD]!=null?"dans cette catégorie":"dépensé"}</text></svg>`;
   const w=el("div");w.innerHTML=svg;body.appendChild(w.firstElementChild);
   const lg=el("div","legend");
-  cats.forEach(([n,v],i)=>{const b=el("button");const real=n!=="Autres catégories";b.setAttribute("aria-pressed",fCat===n);
+  cats.forEach(([n,v],i)=>{const b=el("button");const real=n!=="Autres catégories";b.setAttribute("aria-pressed",fCat==="D|"+n);
     const sw=el("span","sw");sw.style.background=`var(--c${i+1})`;b.appendChild(sw);b.appendChild(el("span","nm",n));b.appendChild(el("span","pc",Math.round(v/dep*100)+" %"));
-    b.title=n+" : "+fmt(v,true);if(real)b.onclick=()=>{fCat=fCat===n?"all":n;render();};else b.disabled=true;lg.appendChild(b);});
+    b.title=n+" : "+fmt(v,true);if(real)b.onclick=()=>{fCat=fCat==="D|"+n?"all":"D|"+n;render();};else b.disabled=true;lg.appendChild(b);});
   body.appendChild(lg);
 }
 function renderBars(){
@@ -735,7 +747,7 @@ function renderSubs(){
 }
 function renderList(tx){
   const list=$("#list");list.innerHTML="";
-  const rows=tx.filter(t=>(fCat==="all"||t.category===fCat)&&(fType==="all"||t.type===fType||(fType==="need"&&t.type==="Dépense"&&NEED[t.need]))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  const rows=tx.filter(t=>(fCat==="all"||catKey(t)===fCat)&&(fType==="all"||t.type===fType||(fType==="need"&&t.type==="Dépense"&&NEED[t.need]))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   $("#movesSub").textContent=rows.length?rows.length+" opération(s) · "+periodLabel():periodLabel();
   if(!rows.length){list.appendChild(emptyBlock("Aucun mouvement","Change la période ou les filtres, ou ajoute une opération."));return;}
   let lastM="";
@@ -818,14 +830,14 @@ document.addEventListener("keydown",e=>{if(e.key==="Escape")closeModal();});
 function openEdit(t){txForm(modal("Modifier le mouvement"),t,closeModal);}
 function openCats(){
   const b=modal("Mes catégories");
-  b.appendChild(el("p","note","Ajoute tes propres catégories de dépenses et de revenus. Tu peux renommer ou supprimer celles que tu as créées : leurs opérations suivent le nouveau nom, ou passent en « Autre » si tu la supprimes."));
+  b.appendChild(el("p","note","Dépenses et revenus ont chacun leurs catégories ; un même nom peut exister des deux côtés (ex. « Remboursement »). Tu peux renommer ou supprimer celles que tu as créées : leurs opérations suivent le nouveau nom, ou passent en « Autre » / « Autre revenu » si tu la supprimes."));
   [["exp","Dépenses",EXP_CATS],["inc","Revenus",INC_CATS]].forEach(([k,title,base])=>{
     const sec=el("div","imports");sec.appendChild(el("div","eyebrow",title));
     const fixed=el("div","chips");base.forEach(c=>{const x=el("span","chip-fixed",c);fixed.appendChild(x);});sec.appendChild(fixed);
     const mine=el("div");mine.style.cssText="display:flex;flex-direction:column;gap:6px;margin-top:8px";
     const draw=()=>{mine.innerHTML="";catsOf(k).forEach(c=>{const row=el("div","cat-row");const i=el("input");i.value=c;i.setAttribute("aria-label","Renommer "+c);
         i.onchange=()=>{const n=renameCat(k,c,i.value);i.value=n;draw();render();};
-        const used=state.tx.filter(t=>t.category===c).length;const n=el("span","cat-n",used?used+" op.":"");
+        const used=state.tx.filter(t=>t.type===typeOfKind(k)&&t.category===c).length;const n=el("span","cat-n",used?used+" op.":"");
         const del=el("button","x","✕");del.title="Supprimer";del.setAttribute("aria-label","Supprimer "+c);let armed=false;
         del.onclick=()=>{if(used&&!armed){armed=true;del.textContent="Sûr ?";del.style.width="auto";return;}removeCat(k,c);draw();render();};
         row.appendChild(i);row.appendChild(n);row.appendChild(del);mine.appendChild(row);});};
@@ -1149,7 +1161,7 @@ function openImport(){
     review.appendChild(list);
     const add=el("button","btn primary","Ajouter les opérations");add.style.marginTop="12px";add.style.justifyContent="center";add.style.width="100%";
     add.onclick=()=>{[...revPending].forEach(f=>f()); // catégorie tapée mais pas encore validée
-      let n=0,last=null;const impAt=todayISO();items.forEach(o=>{if(o.keep&&o.type!=="Virement interne"&&!allCats().includes(o.category))addCat(o.type==="Revenu"?"inc":"exp",o.category);});items.forEach(o=>{if(o.keep){state.tx.push({id:uid_(),date:o.date,account:o.account,type:o.type,category:o.category,label:o.label,amount:o.amount,file:o.file,impAt,owner:o.owner||undefined});n++;if(!last||o.date>last)last=o.date;}});if(n){demo=false;setStatus("");if(last)viewMonth=last.slice(0,7);persist();render();}closeModal();};
+      let n=0,last=null;const impAt=todayISO();items.forEach(o=>{if(o.keep&&o.type!=="Virement interne"&&!catsFor(kindOfType(o.type)).includes(o.category))addCat(kindOfType(o.type),o.category);});items.forEach(o=>{if(o.keep){state.tx.push({id:uid_(),date:o.date,account:o.account,type:o.type,category:o.category,label:o.label,amount:o.amount,file:o.file,impAt,owner:o.owner||undefined});n++;if(!last||o.date>last)last=o.date;}});if(n){demo=false;setStatus("");if(last)viewMonth=last.slice(0,7);persist();render();}closeModal();};
     review.appendChild(add);
   }
   function revItem(o){
@@ -1160,17 +1172,14 @@ function openImport(){
     const ctl=el("div","ctl"),tS=el("select"),cS=el("select"),aS=el("select");
     TYPES.forEach(tp=>{const op=el("option",null,tp);if(tp===o.type)op.selected=true;tS.appendChild(op);});
     [...new Set(accountsList().concat([o.account]))].forEach(ac=>{const op=el("option",null,ac);if(ac===o.account)op.selected=true;aS.appendChild(op);});
-    // toutes les catégories sont proposées sur chaque ligne : celles du type de la ligne d'abord, puis les autres
+    // la ligne ne propose que les catégories de son type (dépense ou revenu) ; on change le type d'abord si besoin
     const fillC=()=>{cS.innerHTML="";
-      const mine=o.type==="Revenu"?incCats():expCats(),other=o.type==="Revenu"?expCats():incCats();
-      if(o.category&&o.category!=="Virement interne"&&!mine.includes(o.category)&&!other.includes(o.category))mine.push(o.category);
-      const grp=(label,list)=>{const g=document.createElement("optgroup");g.label=label;list.forEach(c=>{const op=el("option",null,c);op.value=c;g.appendChild(op);});cS.appendChild(g);};
-      if(o.type==="Virement interne"){const op=el("option",null,"Virement interne");op.value="Virement interne";cS.appendChild(op);}
-      grp(o.type==="Revenu"?"Revenus":"Dépenses",mine);grp(o.type==="Revenu"?"Dépenses":"Revenus",other);
-      const nw=el("option",null,"＋ Nouvelle catégorie…");nw.value="__new";cS.appendChild(nw);
-      if(o.type==="Virement interne"&&o.category!=="Virement interne"&&!mine.concat(other).includes(o.category))o.category="Virement interne";
-      if(o.type!=="Virement interne"&&(o.category==="Virement interne"||!mine.concat(other).includes(o.category)))o.category=mine[0];
-      cS.value=o.category;};fillC();revFillers.push(fillC);
+      if(o.type==="Virement interne"){const op=el("option",null,"Virement interne");op.value="Virement interne";cS.appendChild(op);o.category="Virement interne";cS.disabled=true;return;}
+      cS.disabled=false;const list=catsFor(kindOfType(o.type)).slice();
+      if(o.category&&o.category!=="Virement interne"&&!list.includes(o.category))list.push(o.category);
+      list.forEach(c=>{const op=el("option",null,c);op.value=c;cS.appendChild(op);});
+      const nw=el("option",null,o.type==="Revenu"?"＋ Nouvelle catégorie de revenu…":"＋ Nouvelle catégorie de dépense…");nw.value="__new";cS.appendChild(nw);
+      if(!list.includes(o.category))o.category=list[0];cS.value=o.category;};fillC();revFillers.push(fillC);
     // champ vide + OK pour taper une catégorie ; elle apparaît aussitôt dans toutes les lignes
     const newCat=()=>{const w=el("div","new-cat-row"),i=el("input","chip-input"),okB=el("button","btn","OK"),cancel=el("button","x","✕");
       okB.type="button";cancel.type="button";cancel.setAttribute("aria-label","Annuler");
@@ -1180,10 +1189,7 @@ function openImport(){
       const ok=()=>{const v=i.value.trim();if(!v){close();return;}const n=addCat(o.type==="Revenu"?"inc":"exp",v);close();if(n)o.category=n;revFillers.forEach(f=>f());};
       revPending.add(ok);okB.onclick=ok;cancel.onclick=close;
       i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();ok();}if(e.key==="Escape")close();};};
-    tS.onchange=()=>{o.type=tS.value;if(o.type==="Virement interne")o.category="Virement interne";paint();fillC();};cS.onchange=()=>{if(cS.value==="__new"){fillC();newCat();}else{o.category=cS.value;
-      // sur une ligne « Virement interne », choisir une vraie catégorie en fait une dépense ou un revenu
-      if(o.category==="Virement interne")o.type="Virement interne";else if(o.type==="Virement interne")o.type=incCats().includes(o.category)?"Revenu":"Dépense";
-      tS.value=o.type;paint();fillC();}};aS.onchange=()=>{o.account=aS.value;};
+    tS.onchange=()=>{o.type=tS.value;o.category=o.type==="Virement interne"?"Virement interne":guessCat(String(o.label||"").toUpperCase(),o.type);paint();fillC();};cS.onchange=()=>{if(cS.value==="__new"){fillC();newCat();}else o.category=cS.value;};aS.onchange=()=>{o.account=aS.value;};
     [tS,cS,aS].forEach(s=>s.setAttribute("aria-label","Modifier"));
     ctl.appendChild(tS);ctl.appendChild(cS);ctl.appendChild(aS);it.appendChild(ctl);
     return it;
