@@ -199,6 +199,7 @@ main{padding-block:16px 40px}
 .chip-input{font:inherit;font-size:.8rem;color:var(--ink);background:var(--panel-2);border:1px solid var(--accent);border-radius:20px;padding:4px 10px;min-width:0;width:auto;flex:1 1 140px}
 .chip-fixed{background:var(--panel-2);border:1px solid var(--line);color:var(--muted);border-radius:20px;padding:3px 9px;font-size:.74rem}
 .cat-row{display:flex;gap:8px;align-items:center}
+.new-cat-row{display:flex;gap:6px;align-items:center;flex:1 1 180px;min-width:0}.new-cat-row .btn{padding:5px 10px;font-size:.78rem}
 .cat-row input{flex:1;min-width:0;font:inherit;font-size:.9rem;color:var(--ink);background:var(--panel-2);border:1px solid var(--line-2);border-radius:9px;padding:8px 10px}
 .cat-n{font-size:.72rem;color:var(--faint);white-space:nowrap}
 
@@ -1106,7 +1107,7 @@ async function extractPdfLines(file){
     rows.sort((a,b)=>b.y-a.y);rows.forEach(r=>r.items.sort((a,b)=>a.x-b.x));out.push(...rows);}
   return out;
 }
-let revFillers=[];
+let revFillers=[],revPending=new Set();
 function openImport(){
   const b=modal("Importer un relevé");
   if(!window.pdfjsLib)b.appendChild(el("p","err","Le lecteur PDF n'a pas pu se charger : seuls les fichiers CSV, Excel et OFX passeront."));
@@ -1143,11 +1144,12 @@ function openImport(){
       who.forEach((w,k)=>{const f=el("label","fld");f.appendChild(el("span",null,rows.filter(r=>r.owner===w).length+" opération(s) · "+[...new Set(rows.filter(r=>r.owner===w).map(r=>r.account))].join(", ")));
         const i=el("input");i.id="who"+k;i.value=w;i.oninput=()=>{items.forEach(o=>{if(o.owner0===w)o.owner=i.value.trim()||w;});};f.appendChild(i);box.appendChild(f);});
       review.appendChild(box);}
-    revFillers=[];
+    revFillers=[];revPending=new Set();
     const list=el("div","rev-list");const items=rows.map(r=>{const o={...r,owner0:r.owner,account:r.account||"Compte courant",keep:true};list.appendChild(revItem(o));return o;});
     review.appendChild(list);
     const add=el("button","btn primary","Ajouter les opérations");add.style.marginTop="12px";add.style.justifyContent="center";add.style.width="100%";
-    add.onclick=()=>{let n=0,last=null;const impAt=todayISO();items.forEach(o=>{if(o.keep&&o.type!=="Virement interne"&&!allCats().includes(o.category))addCat(o.type==="Revenu"?"inc":"exp",o.category);});items.forEach(o=>{if(o.keep){state.tx.push({id:uid_(),date:o.date,account:o.account,type:o.type,category:o.category,label:o.label,amount:o.amount,file:o.file,impAt,owner:o.owner||undefined});n++;if(!last||o.date>last)last=o.date;}});if(n){demo=false;setStatus("");if(last)viewMonth=last.slice(0,7);persist();render();}closeModal();};
+    add.onclick=()=>{[...revPending].forEach(f=>f()); // catégorie tapée mais pas encore validée
+      let n=0,last=null;const impAt=todayISO();items.forEach(o=>{if(o.keep&&o.type!=="Virement interne"&&!allCats().includes(o.category))addCat(o.type==="Revenu"?"inc":"exp",o.category);});items.forEach(o=>{if(o.keep){state.tx.push({id:uid_(),date:o.date,account:o.account,type:o.type,category:o.category,label:o.label,amount:o.amount,file:o.file,impAt,owner:o.owner||undefined});n++;if(!last||o.date>last)last=o.date;}});if(n){demo=false;setStatus("");if(last)viewMonth=last.slice(0,7);persist();render();}closeModal();};
     review.appendChild(add);
   }
   function revItem(o){
@@ -1158,17 +1160,30 @@ function openImport(){
     const ctl=el("div","ctl"),tS=el("select"),cS=el("select"),aS=el("select");
     TYPES.forEach(tp=>{const op=el("option",null,tp);if(tp===o.type)op.selected=true;tS.appendChild(op);});
     [...new Set(accountsList().concat([o.account]))].forEach(ac=>{const op=el("option",null,ac);if(ac===o.account)op.selected=true;aS.appendChild(op);});
-    const fillC=()=>{cS.innerHTML="";const list=o.type==="Virement interne"?["Virement interne"]:o.type==="Revenu"?incCats():expCats();
-      if(o.category&&!list.includes(o.category)&&o.type!=="Virement interne")list.push(o.category);
-      list.forEach(c=>{const op=el("option",null,c);op.value=c;if(c===o.category)op.selected=true;cS.appendChild(op);});
-      if(o.type!=="Virement interne"){const nw=el("option",null,"＋ Nouvelle catégorie…");nw.value="__new";cS.appendChild(nw);}
-      o.category=cS.value==="__new"?list[0]:cS.value;};fillC();revFillers.push(fillC);
-    // champ vide pour taper une catégorie ; elle apparaît ensuite dans toutes les lignes
-    const newCat=()=>{const i=el("input","chip-input");i.placeholder=o.type==="Revenu"?"Nouvelle catégorie de revenu":"Nouvelle catégorie de dépense";i.setAttribute("aria-label","Nouvelle catégorie");
-      cS.hidden=true;cS.after(i);i.focus();let done=false;
-      const ok=()=>{if(done)return;done=true;const n=addCat(o.type==="Revenu"?"inc":"exp",i.value);i.remove();cS.hidden=false;if(n)o.category=n;revFillers.forEach(f=>f());};
-      i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();ok();}if(e.key==="Escape"){i.value="";ok();}};i.onblur=ok;};
-    tS.onchange=()=>{o.type=tS.value;paint();fillC();};cS.onchange=()=>{if(cS.value==="__new"){fillC();newCat();}else o.category=cS.value;};aS.onchange=()=>{o.account=aS.value;};
+    // toutes les catégories sont proposées sur chaque ligne : celles du type de la ligne d'abord, puis les autres
+    const fillC=()=>{cS.innerHTML="";
+      const mine=o.type==="Revenu"?incCats():expCats(),other=o.type==="Revenu"?expCats():incCats();
+      if(o.category&&o.category!=="Virement interne"&&!mine.includes(o.category)&&!other.includes(o.category))mine.push(o.category);
+      const grp=(label,list)=>{const g=document.createElement("optgroup");g.label=label;list.forEach(c=>{const op=el("option",null,c);op.value=c;g.appendChild(op);});cS.appendChild(g);};
+      if(o.type==="Virement interne"){const op=el("option",null,"Virement interne");op.value="Virement interne";cS.appendChild(op);}
+      grp(o.type==="Revenu"?"Revenus":"Dépenses",mine);grp(o.type==="Revenu"?"Dépenses":"Revenus",other);
+      const nw=el("option",null,"＋ Nouvelle catégorie…");nw.value="__new";cS.appendChild(nw);
+      if(o.type==="Virement interne"&&o.category!=="Virement interne"&&!mine.concat(other).includes(o.category))o.category="Virement interne";
+      if(o.type!=="Virement interne"&&(o.category==="Virement interne"||!mine.concat(other).includes(o.category)))o.category=mine[0];
+      cS.value=o.category;};fillC();revFillers.push(fillC);
+    // champ vide + OK pour taper une catégorie ; elle apparaît aussitôt dans toutes les lignes
+    const newCat=()=>{const w=el("div","new-cat-row"),i=el("input","chip-input"),okB=el("button","btn","OK"),cancel=el("button","x","✕");
+      okB.type="button";cancel.type="button";cancel.setAttribute("aria-label","Annuler");
+      i.placeholder=o.type==="Revenu"?"Nouvelle catégorie de revenu":"Nouvelle catégorie de dépense";i.setAttribute("aria-label","Nouvelle catégorie");
+      w.appendChild(i);w.appendChild(okB);w.appendChild(cancel);cS.hidden=true;cS.after(w);try{i.focus();}catch(e){}
+      const close=()=>{w.remove();cS.hidden=false;revPending.delete(ok);};
+      const ok=()=>{const v=i.value.trim();if(!v){close();return;}const n=addCat(o.type==="Revenu"?"inc":"exp",v);close();if(n)o.category=n;revFillers.forEach(f=>f());};
+      revPending.add(ok);okB.onclick=ok;cancel.onclick=close;
+      i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();ok();}if(e.key==="Escape")close();};};
+    tS.onchange=()=>{o.type=tS.value;if(o.type==="Virement interne")o.category="Virement interne";paint();fillC();};cS.onchange=()=>{if(cS.value==="__new"){fillC();newCat();}else{o.category=cS.value;
+      // sur une ligne « Virement interne », choisir une vraie catégorie en fait une dépense ou un revenu
+      if(o.category==="Virement interne")o.type="Virement interne";else if(o.type==="Virement interne")o.type=incCats().includes(o.category)?"Revenu":"Dépense";
+      tS.value=o.type;paint();fillC();}};aS.onchange=()=>{o.account=aS.value;};
     [tS,cS,aS].forEach(s=>s.setAttribute("aria-label","Modifier"));
     ctl.appendChild(tS);ctl.appendChild(cS);ctl.appendChild(aS);it.appendChild(ctl);
     return it;
