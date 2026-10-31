@@ -649,6 +649,8 @@ function accountRecords(){
   state.tx.forEach(t=>{if(t.account&&!names.has(t.account)){names.add(t.account);recs.push({name:t.account,owner:t.owner||""});}});
   return recs;
 }
+// comptes proposés à la saisie : ceux de « Mes comptes » (jamais ceux des exemples)
+const realAccounts=()=>{const n=accountRecords().map(a=>a.name);return n.length?n:["Compte courant"];};
 const accountsList=()=>{const s=new Set(accountRecords().map(a=>a.name));baseTx().forEach(t=>{if(t.account)s.add(t.account);});if(!s.size)s.add("Compte courant");return[...s];};
 const sameNum=(a,b)=>!!a&&!!b&&String(a).replace(/\D/g,"").slice(-6)===String(b).replace(/\D/g,"").slice(-6);
 // enregistrement du compte (crée l'entrée à partir des opérations si besoin)
@@ -873,15 +875,22 @@ function txForm(host,existing,done){
       const ok=()=>{const n=addCat(type==="Revenu"?"inc":"exp",i.value);if(n)cat=n;fillChips();if(n)render();};
       i.onkeydown=e=>{if(e.key==="Enter"){e.preventDefault();ok();}if(e.key==="Escape")fillChips();};i.onblur=()=>{if(i.value.trim())ok();else fillChips();};};
     chips.appendChild(nb);}
-  fillChips();if(!existing)addFormRefresh=fillChips; // le formulaire de gauche suit les catégories ajoutées
+  fillChips();
   const two=el("div","two");
   const fd=el("label","fld");fd.appendChild(el("span",null,"Date"));const di=el("input");di.type="date";di.id=existing?"editDate":"addDate";di.value=t.date||todayISO();fd.appendChild(di);
-  const fa=el("label","fld");fa.appendChild(el("span",null,"Compte"));const as=el("select");as.id=existing?"editAcc":"addAcc";accountsList().forEach(a=>{const o=el("option",null,a);if(a===t.account)o.selected=true;as.appendChild(o);});fa.appendChild(as);
+  const fa=el("label","fld");fa.appendChild(el("span",null,"Compte"));const as=el("select");as.id=existing?"editAcc":"addAcc";
+  // comptes de « Mes comptes » (re-remplis quand ils changent, le formulaire de gauche étant construit avant leur chargement)
+  const fillAcc=()=>{const keep=as.value||t.account,list=realAccounts();if(t.account&&existing&&!list.includes(t.account))list.push(t.account);as.innerHTML="";
+    list.forEach(a=>{const o=el("option",null,a);o.value=a;as.appendChild(o);});
+    as.value=list.includes(keep)?keep:(fAcc!=="all"&&list.includes(fAcc)?fAcc:list[0]);};
+  fillAcc();fa.appendChild(as);
   two.appendChild(fd);two.appendChild(fa);host.appendChild(two);
   const fl=el("label","fld");fl.appendChild(el("span",null,"Note (optionnel)"));const li=el("input");li.id=existing?"editLabel":"addLabel";li.placeholder="ex. courses du samedi";li.value=existing&&t.label!==t.category?t.label||"":"";fl.appendChild(li);host.appendChild(fl);
   // personne (titulaire), proposée dès que des comptes de plusieurs personnes existent
   const fo=el("label","fld");fo.appendChild(el("span",null,"Personne"));const oi=el("input");oi.id=existing?"editOwner":"addOwner";oi.setAttribute("list","ownersDl");oi.placeholder="Titulaire du compte";
   oi.value=existing?(t.owner||""):(fOwner!=="all"?fOwner:"");fo.appendChild(oi);host.appendChild(fo);fo.hidden=!ownersList().length;
+  // le formulaire de gauche suit les catégories, comptes et personnes ajoutés
+  if(!existing)addFormRefresh=()=>{fillChips();fillAcc();fo.hidden=!ownersList().length;};
   let dl=$("#ownersDl");if(!dl){dl=el("datalist");dl.id="ownersDl";document.body.appendChild(dl);}dl.innerHTML="";ownersList().forEach(o=>{const x=el("option");x.value=o;dl.appendChild(x);});
   const msg=el("div","err");msg.hidden=true;host.appendChild(msg);
   const actions=el("div","row-actions");
@@ -1383,7 +1392,7 @@ function openImport(){
     hd.appendChild(l);hd.appendChild(a);hd.appendChild(rm);it.appendChild(hd);
     const ctl=el("div","ctl"),tS=el("select"),cS=el("select"),aS=el("select");
     TYPES.forEach(tp=>{const op=el("option",null,tp);if(tp===o.type)op.selected=true;tS.appendChild(op);});
-    [...new Set(accountsList().concat([o.account]))].forEach(ac=>{const op=el("option",null,ac);if(ac===o.account)op.selected=true;aS.appendChild(op);});
+    [...new Set(realAccounts().concat([o.account]))].forEach(ac=>{const op=el("option",null,ac);if(ac===o.account)op.selected=true;aS.appendChild(op);});
     // la ligne ne propose que les catégories de son type (dépense ou revenu) ; on change le type d'abord si besoin
     const fillC=()=>{cS.innerHTML="";
       if(o.type==="Virement interne"){const op=el("option",null,"Virement interne");op.value="Virement interne";cS.appendChild(op);o.category="Virement interne";cS.disabled=true;return;}
