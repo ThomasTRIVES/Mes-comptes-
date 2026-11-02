@@ -751,7 +751,10 @@ function renderDonut(tx,dep){
   all.forEach(([n,v],i)=>{const b=el("button");b.setAttribute("aria-pressed",fCat==="D|"+n);
     const sw=el("span","sw");sw.style.background=colorOf(i);b.appendChild(sw);b.appendChild(el("span","nm",n));
     const pc=v/dep*100;b.appendChild(el("span","pc",pc>0&&pc<1?"<1 %":Math.round(pc)+" %"));
-    b.title=n+" : "+fmt(v,true);b.onclick=()=>{fCat=fCat==="D|"+n?"all":"D|"+n;render();};lg.appendChild(b);});
+    b.title=n+" : "+fmt(v,true);b.onclick=()=>{fCat=fCat==="D|"+n?"all":"D|"+n;
+      // une catégorie du graphique = ses dépenses ET ses remboursements : un filtre Type « Dépenses » / « Revenus » / « Virements » les cacherait
+      if(fCat!=="all"&&!["all","Remboursement","need"].includes(fType)){fType="all";savePrefs();}
+      render();};lg.appendChild(b);});
   body.appendChild(lg);
 }
 function renderBars(){
