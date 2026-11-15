@@ -217,6 +217,28 @@ main{padding-block:16px 40px}
 .edit-nav .icon-btn:disabled{opacity:.35;cursor:default}
 .nav-pos{font-size:.78rem;color:var(--muted);font-variant-numeric:tabular-nums;min-width:52px;text-align:center}
 
+/* double résidence */
+.modal.wide{max-width:760px}
+.tag.dr{background:color-mix(in srgb,var(--transfer) 18%,transparent);color:var(--transfer)}
+.dr-top{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.dr-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.dr-tile{border:1px solid var(--line);border-radius:12px;padding:12px 14px;background:var(--panel-2)}
+.dr-tile.hi{border-color:var(--accent);background:linear-gradient(160deg,var(--accent-soft),transparent 70%),var(--panel-2)}
+.dr-tile.hi .eyebrow{color:var(--accent)}
+.dr-h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.dr-row{display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--line);flex-wrap:wrap}
+.dr-row:first-of-type{border-top:0}
+.dr-main{flex:1 1 200px;min-width:0}
+.dr-main .t{font-weight:600;font-size:.86rem;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dr-main .s{font-size:.74rem;color:var(--faint)}
+.dr-row .amt{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dr-row select{font-size:.78rem;padding:5px 7px;border-radius:8px;max-width:210px}
+.dr-row input{width:92px;font:inherit;font-size:.86rem;color:var(--ink);background:var(--panel-2);border:1px solid var(--line-2);border-radius:8px;padding:6px 8px;text-align:right}
+.dr-eur{color:var(--muted);font-size:.85rem}
+.dr-row .btn{padding:5px 10px;font-size:.78rem}
+details.imports summary{cursor:pointer;font-weight:600;font-size:.84rem}
+details.imports[open] summary{margin-bottom:8px}
+
 /* mouvements */
 .moves{grid-area:moves;display:flex;flex-direction:column;min-height:0}
 @media(min-width:1181px){.moves{max-height:calc(100vh - 100px);position:sticky;top:calc(env(safe-area-inset-top,0px) + 78px);align-self:start}}
@@ -313,6 +335,7 @@ main{padding-block:16px 40px}
         <option value="0">Tout</option>
       </select>
       <button class="btn" id="importBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 16V4m0 0L8 8m4-4 4 4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>Importer</button>
+      <button class="btn" id="drBtn" title="Frais de double résidence (frais réels, case 1AK)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 11l5-4 5 4v8H3z"/><path d="M13 13l4-3 4 3v6h-8"/></svg>Double résidence</button>
       <button class="btn" id="exportBtn"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 4v12m0 0-4-4m4 4 4-4"/><path d="M4 16v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>CSV</button>
       <button class="icon-btn" id="themeBtn" aria-label="Changer de thème" title="Changer de thème">◐</button>
       <button class="icon-btn" id="acctBtn" aria-label="Mon compte" title="Mon compte" hidden>☺</button>
@@ -477,7 +500,7 @@ const LS="mc_data_v1";
 function loadLocal(){try{const r=localStorage.getItem(LS);if(r)return JSON.parse(r);}catch(e){}return null;}
 function saveLocal(){try{localStorage.setItem(LS,JSON.stringify(state));}catch(e){}}
 function storeDocs(){
-  const docs={settings:JSON.stringify({budgets:state.budgets,subs:state.subs||{},me:state.me||"",cats:state.cats||{},accounts:state.accounts||[]})};
+  const docs={settings:JSON.stringify({budgets:state.budgets,subs:state.subs||{},me:state.me||"",cats:state.cats||{},accounts:state.accounts||[],dr:state.dr||{}})};
   const by={};state.tx.forEach(t=>{const k="m-"+(t.date||"").slice(0,7);(by[k]=by[k]||[]).push(t);});
   Object.keys(by).forEach(k=>{docs[k]=JSON.stringify({tx:by[k]});});
   return docs;
@@ -507,18 +530,18 @@ function persist(){
   });
 }
 function applyDocs(rows){
-  let tx=[],budgets={},subs={},me="",cats={},accounts=[];
+  let tx=[],budgets={},subs={},me="",cats={},accounts=[],dr={};
   Object.keys(written).forEach(k=>delete written[k]);
   rows.forEach(r=>{const v=r.data||{};
-    if(r.doc_id==="settings"){budgets=v.budgets||{};subs=v.subs||{};me=v.me||"";cats=v.cats||{};accounts=v.accounts||[];written.settings=JSON.stringify({budgets,subs,me,cats,accounts});}
+    if(r.doc_id==="settings"){budgets=v.budgets||{};subs=v.subs||{};me=v.me||"";cats=v.cats||{};accounts=v.accounts||[];dr=v.dr||{};written.settings=JSON.stringify({budgets,subs,me,cats,accounts,dr});}
     else if(r.doc_id.startsWith("m-")&&Array.isArray(v.tx)){tx=tx.concat(v.tx);written[r.doc_id]=JSON.stringify({tx:v.tx});}
   });
   const first=!loaded;loaded=true;
   // tout premier lancement sur un espace vide : on envoie ce que cet appareil avait déjà
-  if(first&&!rows.length){const local=loadLocal();if(local&&Array.isArray(local.tx)&&local.tx.length){state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||"",cats:local.cats||{},accounts:local.accounts||[]};demo=false;persist();setStatus("");render();return;}}
+  if(first&&!rows.length){const local=loadLocal();if(local&&Array.isArray(local.tx)&&local.tx.length){state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||"",cats:local.cats||{},accounts:local.accounts||[],dr:local.dr||{}};demo=false;persist();setStatus("");render();return;}}
   // modifications faites hors ligne sur cet appareil : elles partent maintenant
   if(unsynced){unsynced=false;persist();return;}
-  state={tx,budgets,subs,me,cats,accounts};demo=!tx.length;saveLocal();setStatus("");render();
+  state={tx,budgets,subs,me,cats,accounts,dr};demo=!tx.length;saveLocal();setStatus("");render();
 }
 async function pull(){
   if(!uid)return;
@@ -539,7 +562,7 @@ async function startSession(user){
 }
 async function boot(){
   // affichage immédiat avec la copie de cet appareil ; la version synchronisée prend le relais
-  const local=loadLocal();if(local&&Array.isArray(local.tx)&&local.tx.length){state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||"",cats:local.cats||{},accounts:local.accounts||[]};demo=false;render();}
+  const local=loadLocal();if(local&&Array.isArray(local.tx)&&local.tx.length){state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||"",cats:local.cats||{},accounts:local.accounts||[],dr:local.dr||{}};demo=false;render();}
   if(!window.supabase){fallbackLocal("La synchro n'a pas pu se charger (hors ligne ?) : données de cet appareil.");return;}
   const cfg=sbConfig();if(!cfg){showSetup();return;}
   try{sb=supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"mc_auth"}});}catch(e){showSetup("Adresse ou clé invalide.");return;}
@@ -623,7 +646,7 @@ function restoreCsv(text){
   if(n){demo=false;setStatus("");persist();render();}
   return n;
 }
-function fallbackLocal(msg){loaded=true;const local=loadLocal();if(local&&Array.isArray(local.tx))state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||"",cats:local.cats||{},accounts:local.accounts||[]};demo=!state.tx.length;setStatus(msg);render();}
+function fallbackLocal(msg){loaded=true;const local=loadLocal();if(local&&Array.isArray(local.tx))state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||"",cats:local.cats||{},accounts:local.accounts||[],dr:local.dr||{}};demo=!state.tx.length;setStatus(msg);render();}
 function setStatus(t){const s=$("#statusLine");s.textContent="";if(demo&&loaded&&!noDemo){s.appendChild(el("span","pill","Aperçu"));s.appendChild(document.createTextNode(" Données d'exemple, pas les tiennes. Elles disparaissent dès ta première opération."+(t?" "+t:"")+" "));const h=el("button","link-btn","Masquer les exemples");h.onclick=hideDemo;s.appendChild(h);s.hidden=false;return;}s.textContent=t||"";s.hidden=!t;}
 
 /* ---- aperçu (jamais enregistré) ---- */
@@ -856,6 +879,7 @@ function mvRow(t){
   const ttl=el("div","t",t.type==="Virement interne"?(t.label||"Virement interne"):t.category);
   if(t.type==="Dépense"&&NEED[t.need])ttl.appendChild(el("span","tag "+t.need,NEED[t.need]));
   if(t.type==="Remboursement")ttl.appendChild(el("span","tag refund","remboursement"));
+  if(t.dr&&DR_KINDS[t.dr.kind])ttl.appendChild(el("span","tag dr","double résidence"));
   main.appendChild(ttl);
   const sub=[dayLabel(t.date||"")];if(t.type!=="Virement interne"&&t.label&&t.label!==t.category)sub.push(t.label);if(t.account&&t.account!=="Compte courant")sub.push(t.account);if(t.owner&&fOwner==="all"&&ownersList().length>1)sub.push(t.owner);
   main.appendChild(el("div","s",sub.join(" · ")));b.appendChild(main);
@@ -904,10 +928,18 @@ function txForm(host,existing,done){
   two.appendChild(fd);two.appendChild(fa);host.appendChild(two);
   const fl=el("label","fld");fl.appendChild(el("span",null,"Note (optionnel)"));const li=el("input");li.id=existing?"editLabel":"addLabel";li.placeholder="ex. courses du samedi";li.value=existing&&t.label!==t.category?t.label||"":"";fl.appendChild(li);host.appendChild(fl);
   // personne (titulaire), proposée dès que des comptes de plusieurs personnes existent
+  // frais de double résidence (frais réels) : nature + part déductible
+  const fdr=el("div","two");const fdk=el("label","fld");fdk.appendChild(el("span",null,"Double résidence"));const dk=el("select");dk.id=existing?"editDr":"addDr";
+  [["","Non"]].concat(Object.entries(DR_KINDS)).forEach(([v,l])=>{const o=el("option",null,l);o.value=v;dk.appendChild(o);});dk.value=t.dr&&DR_KINDS[t.dr.kind]?t.dr.kind:"";fdk.appendChild(dk);
+  const fdd=el("label","fld");fdd.appendChild(el("span",null,"Part déductible (€)"));const dd=el("input");dd.id=existing?"editDrDed":"addDrDed";dd.inputMode="decimal";dd.placeholder="tout le montant";
+  if(t.dr&&typeof t.dr.ded==="number"&&t.dr.ded!==+t.amount)dd.value=t.dr.ded.toFixed(2).replace(".",",");fdd.appendChild(dd);
+  fdr.appendChild(fdk);fdr.appendChild(fdd);host.appendChild(fdr);
+  const showDr=()=>{fdr.hidden=!(type==="Dépense"||type==="Remboursement");fdd.hidden=!dk.value;};dk.onchange=showDr;
   const fo=el("label","fld");fo.appendChild(el("span",null,"Personne"));const oi=el("input");oi.id=existing?"editOwner":"addOwner";oi.setAttribute("list","ownersDl");oi.placeholder="Titulaire du compte";
   oi.value=existing?(t.owner||""):(fOwner!=="all"?fOwner:"");fo.appendChild(oi);host.appendChild(fo);fo.hidden=!ownersList().length;
   // le formulaire de gauche suit les catégories, comptes et personnes ajoutés
-  if(!existing)addFormRefresh=()=>{fillChips();fillAcc();fo.hidden=!ownersList().length;};
+  if(!existing)addFormRefresh=()=>{fillChips();fillAcc();fo.hidden=!ownersList().length;showDr();};
+  showDr();[...seg.children].forEach(b=>b.addEventListener("click",showDr));
   let dl=$("#ownersDl");if(!dl){dl=el("datalist");dl.id="ownersDl";document.body.appendChild(dl);}dl.innerHTML="";ownersList().forEach(o=>{const x=el("option");x.value=o;dl.appendChild(x);});
   const msg=el("div","err");msg.hidden=true;host.appendChild(msg);
   const actions=el("div","row-actions");
@@ -917,9 +949,11 @@ function txForm(host,existing,done){
     const amount=parseFloat(String(ai.value).replace(/\s/g,"").replace(",","."));
     if(!(amount>0)){msg.className="err";msg.textContent="Entre un montant supérieur à 0.";msg.hidden=false;ai.focus();return false;}
     const date=di.value||todayISO();
-    const rec={date,account:as.value,type,category:cat,label:li.value.trim()||cat,amount:Math.round(amount*100)/100,need:type==="Dépense"&&need?need:undefined,owner:oi.value.trim()||undefined};
+    const rec={date,account:as.value,type,category:cat,label:li.value.trim()||cat,amount:Math.round(amount*100)/100,need:type==="Dépense"&&need?need:undefined,owner:oi.value.trim()||undefined,
+      dr:(type==="Dépense"||type==="Remboursement")&&dk.value?{kind:dk.value,ded:(v=>v==null?Math.round(amount*100)/100:Math.round(Math.abs(v)*100)/100)(parseNum(dd.value))}:undefined,
+      drNo:existing&&!dk.value&&(type==="Dépense"||type==="Remboursement")?true:undefined};
     if(existing){const ix=state.tx.findIndex(x=>x.id===existing.id),cur=ix>=0?state.tx[ix]:null;
-      const same=cur&&Object.keys(rec).every(k=>(rec[k]??"")===(cur[k]??""));
+      const same=cur&&Object.keys(rec).every(k=>JSON.stringify(rec[k]??"")===JSON.stringify(cur[k]??""));
       if(same){if(!nav&&done)done();return true;}
       if(ix>=0)state.tx[ix]={...cur,...rec};}
     else state.tx.push({id:uid_(),...rec});
@@ -973,6 +1007,98 @@ function openCats(){
     const add=el("div","cat-row");const ni=el("input");ni.id="newCat-"+k;ni.placeholder=k==="exp"?"Nouvelle catégorie de dépense":"Nouvelle catégorie de revenu";
     const ab=el("button","btn","Ajouter");ab.type="button";const go=()=>{if(addCat(k,ni.value)){ni.value="";draw();render();}};ab.onclick=go;ni.onkeydown=e=>{if(e.key==="Enter")go();};
     add.appendChild(ni);add.appendChild(ab);sec.appendChild(add);b.appendChild(sec);});
+}
+/* ---- double résidence (frais réels, case 1AK) ----
+   t.dr = {kind, ded} : mouvement retenu, avec sa part déductible (ex. 1 121,68 € dont 860 € de dépôt de garantie → ded 261,68)
+   t.drNo = true : écarté exprès (n'est plus proposé) */
+const DR_KINDS={loyer:"Loyer et charges (2ᵉ logement)",agence:"Frais d'agence / installation",transport:"Trajets Montpellier ↔ Dijon",autre:"Autre frais de double résidence"};
+const DR_DEFAULT_KEYS={loyer:"DEVOSNE",transport:"SNCF, OUIGO, TRAINLINE, INOUI, TER"};
+const drKeys=k=>String(((state.dr||{}).keys||{})[k]??DR_DEFAULT_KEYS[k]??"").split(/[,;]/).map(x=>x.trim().toUpperCase()).filter(Boolean);
+const drSign=t=>t.type==="Remboursement"?-1:1;
+const drDed=t=>t.dr?drSign(t)*(typeof t.dr.ded==="number"?t.dr.ded:+t.amount||0):0;
+// proposé d'office : dépense (ou remboursement) dont le libellé contient un mot-clé, ni retenue ni écartée
+function drGuess(t){
+  if(t.dr||t.drNo||t.demo||!(t.type==="Dépense"||t.type==="Remboursement"))return null;
+  const up=String(t.label||"").toUpperCase()+" "+String(t.category||"").toUpperCase();
+  if(drKeys("loyer").some(k=>up.includes(k)))return"loyer";
+  if(drKeys("transport").some(k=>up.includes(k)))return"transport";
+  return null;
+}
+function openDR(){
+  const b=modal("Double résidence — frais réels");b.parentElement.classList.add("wide");
+  const years=[...new Set(state.tx.filter(t=>t.dr||drGuess(t)).map(t=>(t.date||"").slice(0,4)))].concat([String(new Date().getFullYear())]).filter(Boolean);
+  let year=[...new Set(years)].sort().pop();
+  b.appendChild(el("p","note","Montpellier = résidence principale ; Dijon = 2ᵉ logement imposé par le travail. Si tu choisis les frais réels, ces dépenses se déduisent de tes salaires (case 1AK) à la place de l'abattement de 10 %. Retiens le loyer de Dijon, les frais d'agence et les allers-retours Montpellier ↔ Dijon. Le dépôt de garantie n'est pas déductible : mets seulement la part déductible."));
+  const top=el("div","dr-top");const ys=el("select");ys.id="drYear";ys.setAttribute("aria-label","Année");
+  [...new Set(years)].sort().reverse().forEach(y=>{const o=el("option",null,"Année "+y);o.value=y;ys.appendChild(o);});ys.value=year;ys.onchange=()=>{year=ys.value;draw();};
+  const ex=el("button","btn","Exporter pour la case 1AK");ex.type="button";ex.onclick=()=>exportDR(year);
+  top.appendChild(ys);top.appendChild(ex);b.appendChild(top);
+  const body=el("div");body.style.cssText="display:flex;flex-direction:column;gap:12px";b.appendChild(body);
+  const draw=()=>{body.innerHTML="";
+    const inY=t=>(t.date||"").startsWith(year);
+    const kept=state.tx.filter(t=>t.dr&&DR_KINDS[t.dr.kind]&&inY(t)).sort((a,c)=>(a.date||"").localeCompare(c.date||""));
+    const sugg=state.tx.filter(t=>inY(t)&&drGuess(t)).sort((a,c)=>(a.date||"").localeCompare(c.date||""));
+    // totaux
+    const by={};Object.keys(DR_KINDS).forEach(k=>by[k]=0);kept.forEach(t=>{by[t.dr.kind]+=drDed(t);});
+    const ded=Object.values(by).reduce((s,v)=>s+v,0);
+    const paid=kept.reduce((s,t)=>s+drSign(t)*(+t.amount||0),0),nonDed=paid-ded;
+    const trips=kept.filter(t=>t.dr.kind==="transport"&&t.type==="Dépense").length;
+    const sum=el("div","dr-sum");
+    const tile=(l,v,c)=>{const d=el("div","dr-tile"+(c?" "+c:""));d.appendChild(el("div","eyebrow",l));d.appendChild(el("div","big",money(v,true)));return d;};
+    sum.appendChild(tile("Total déductible "+year,ded,"hi"));sum.appendChild(tile("Non déductible (dépôt…)",Math.max(0,nonDed)));
+    body.appendChild(sum);
+    const det=el("div","imports");Object.entries(DR_KINDS).forEach(([k,l])=>{if(!by[k]&&k==="autre")return;const r=el("div","mini");r.appendChild(el("span","n",l+(k==="transport"?" · "+trips+" billet(s)":"")));r.appendChild(el("span","v",money(by[k],true)));det.appendChild(r);});
+    body.appendChild(det);
+    // abattement 10 % ou frais réels ?
+    const cmp=el("div","imports");cmp.appendChild(el("div","eyebrow","Abattement 10 % ou frais réels ?"));
+    const sl=el("label","fld");sl.appendChild(el("span",null,"Salaires nets imposables "+year+" (case 1AJ, cumul du bulletin de décembre)"));const si=el("input");si.id="drSalary";si.inputMode="decimal";si.placeholder="ex. 18 000";
+    const sal=((state.dr||{}).salary||{})[year];if(sal)si.value=String(sal).replace(".",",");sl.appendChild(si);cmp.appendChild(sl);
+    const res=el("div","note");cmp.appendChild(res);
+    const calc=()=>{const v=parseNum(si.value);
+      if(!(v>0)){res.textContent="Indique tes salaires de l'année pour comparer. (Barème de l'abattement : 10 %, minimum 509 €, maximum 14 555 € — chiffres des revenus 2025, à actualiser.)";return;}
+      const ab=Math.min(14555,Math.max(509,v*0.10));res.textContent="";
+      const line=(t,strong)=>{const d=el("div",null);if(strong)d.appendChild(el("strong",null,t));else d.textContent=t;res.appendChild(d);};
+      line("Abattement 10 % : "+money(ab,true)+"  ·  Frais réels (double résidence) : "+money(ded,true));
+      line(ded>ab?"→ Les frais réels sont plus intéressants : "+money(ded-ab,true)+" de revenu imposable en moins. Case 1AK = "+money(ded)+" (+ tes autres frais réels éventuels).":"→ Garde l'abattement de 10 % ("+money(ab-ded,true)+" de plus que tes frais réels). Ne remplis pas la case 1AK.",true);
+      line("Rappel : avec les frais réels, les remboursements de frais reçus (JDA, STAPS) doivent être ajoutés aux salaires déclarés.");};
+    si.onchange=()=>{const v=parseNum(si.value);state.dr=state.dr||{};state.dr.salary=Object.assign({},state.dr.salary);if(v>0)state.dr.salary[year]=Math.round(v);else delete state.dr.salary[year];persist();calc();};
+    si.oninput=calc;calc();body.appendChild(cmp);
+    // suggestions
+    if(sugg.length){const box=el("div","imports dr-sugg");const h=el("div","dr-h");h.appendChild(el("div","eyebrow","À confirmer ("+sugg.length+") — repérés automatiquement"));
+      const all=el("button","link-btn","Tout ajouter");all.type="button";all.onclick=()=>{sugg.forEach(t=>{t.dr={kind:drGuess(t),ded:+t.amount};});persist();render();draw();};h.appendChild(all);box.appendChild(h);
+      sugg.forEach(t=>{const k=drGuess(t),r=el("div","dr-row");
+        const m=el("div","dr-main");m.appendChild(el("div","t",t.label||t.category));m.appendChild(el("div","s",t.date.split("-").reverse().join("/")+" · "+DR_KINDS[k]+(t.account?" · "+t.account:"")+(k==="loyer"&&t.amount>700?" · ⚠️ contient peut-être le dépôt de garantie":"")));
+        r.appendChild(m);r.appendChild(el("span","amt",(t.type==="Remboursement"?"↩ +":"")+money(t.amount,true)));
+        const ok=el("button","btn","Ajouter");ok.type="button";ok.onclick=()=>{t.dr={kind:k,ded:+t.amount};persist();render();draw();};
+        const no=el("button","x","✕");no.type="button";no.title="Pas un frais de double résidence";no.setAttribute("aria-label","Écarter");no.onclick=()=>{t.drNo=true;persist();render();draw();};
+        r.appendChild(ok);r.appendChild(no);box.appendChild(r);});
+      body.appendChild(box);}
+    // lignes retenues
+    const list=el("div","imports");list.appendChild(el("div","eyebrow","Retenus pour "+year+" ("+kept.length+")"));
+    if(!kept.length)list.appendChild(el("p","note","Aucun frais retenu pour cette année. Ajoute les suggestions ci-dessus, ou ouvre un mouvement et choisis « Double résidence »."));
+    kept.forEach((t,ix)=>{const r=el("div","dr-row");
+      const m=el("div","dr-main");m.appendChild(el("div","t",t.label||t.category));m.appendChild(el("div","s",t.date.split("-").reverse().join("/")+" · payé "+money(t.amount,true)+(t.type==="Remboursement"?" (remboursé)":"")));r.appendChild(m);
+      const ks=el("select");ks.id="drKind-"+ix;ks.setAttribute("aria-label","Nature");Object.entries(DR_KINDS).forEach(([v,l])=>{const o=el("option",null,l);o.value=v;ks.appendChild(o);});ks.value=t.dr.kind;ks.onchange=()=>{t.dr.kind=ks.value;persist();draw();};
+      const di=el("input");di.id="drDed-"+ix;di.inputMode="decimal";di.setAttribute("aria-label","Part déductible");di.value=(+(typeof t.dr.ded==="number"?t.dr.ded:t.amount)).toFixed(2).replace(".",",");
+      di.onchange=()=>{const v=parseNum(di.value);t.dr.ded=v==null?+t.amount:Math.min(+t.amount,Math.round(Math.abs(v)*100)/100);persist();render();draw();};
+      const rm=el("button","x","✕");rm.type="button";rm.title="Retirer de la double résidence";rm.setAttribute("aria-label","Retirer");rm.onclick=()=>{delete t.dr;t.drNo=true;persist();render();draw();};
+      r.appendChild(ks);r.appendChild(di);r.appendChild(el("span","dr-eur","€"));r.appendChild(rm);list.appendChild(r);});
+    body.appendChild(list);
+    // mots-clés
+    const kw=el("details","imports");kw.appendChild(el("summary",null,"Mots-clés de repérage automatique"));
+    [["loyer","Loyer / agence du 2ᵉ logement"],["transport","Trajets (train, car, péage…)"]].forEach(([k,l])=>{const f=el("label","fld");f.appendChild(el("span",null,l+" — séparés par des virgules"));const i=el("input");i.id="drKeys-"+k;i.value=(((state.dr||{}).keys||{})[k])??DR_DEFAULT_KEYS[k];
+      i.onchange=()=>{state.dr=state.dr||{};state.dr.keys=Object.assign({},state.dr.keys,{[k]:i.value});persist();draw();};f.appendChild(i);kw.appendChild(f);});
+    body.appendChild(kw);
+  };
+  draw();
+}
+function exportDR(year){
+  const q=v=>{const s=String(v==null?"":v);return/[";\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;},n=v=>(Math.round(v*100)/100).toFixed(2).replace(".",",");
+  const kept=state.tx.filter(t=>t.dr&&DR_KINDS[t.dr.kind]&&(t.date||"").startsWith(year)).sort((a,c)=>(a.date||"").localeCompare(c.date||""));
+  const lines=["date;nature;libelle;compte;montant_paye;part_deductible;justificatif_garde"].concat(kept.map(t=>[t.date,DR_KINDS[t.dr.kind],t.label,t.account,n(drSign(t)*t.amount),n(drDed(t)),""].map(q).join(";")));
+  const by={};kept.forEach(t=>{by[t.dr.kind]=(by[t.dr.kind]||0)+drDed(t);});const tot=Object.values(by).reduce((s,v)=>s+v,0);
+  lines.push("");Object.entries(by).forEach(([k,v])=>lines.push(";TOTAL "+q(DR_KINDS[k])+";;;;"+n(v)+";"));lines.push(";TOTAL DEDUCTIBLE (case 1AK, frais de double residence);;;;"+n(tot)+";");
+  return saveFile("double-residence-"+year+"-case-1AK.csv","﻿"+lines.join("\n"));
 }
 function openAccounts(){
   const b=modal("Mes comptes");
@@ -1031,8 +1157,10 @@ function openBudgets(){
 async function exportCsv(){
   const q=v=>{const s=String(v==null?"":v);return/[";\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s;};
   const lines=["date;type;categorie;libelle;compte;montant;personne"].concat(state.tx.slice().sort((a,b)=>(a.date||"").localeCompare(b.date||"")).map(t=>[t.date,t.type,t.category,t.label,t.account,(t.type==="Dépense"?-t.amount:t.amount).toFixed(2).replace(".",","),t.owner||""].map(q).join(";")));
-  const data="﻿"+lines.join("\n"),filename="mes-comptes-"+todayISO()+".csv";
-  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([data],{type:"text/csv"}));a.download=filename;a.click();
+  return saveFile("mes-comptes-"+todayISO()+".csv","﻿"+lines.join("\n"));
+}
+async function saveFile(filename,data){
+  const a=document.createElement("a");a.href=URL.createObjectURL(new Blob([data],{type:filename.endsWith(".csv")?"text/csv":"text/plain"}));a.download=filename;a.click();
 }
 
 /* ---- import PDF (local, gratuit) ---- */
@@ -1465,10 +1593,10 @@ $("#wipeBtn").onclick=()=>{
   const b=modal("Tout effacer");
   b.appendChild(el("p","note","Toutes tes opérations, tes relevés importés et tes budgets seront supprimés, sur tous tes appareils. C'est définitif : exporte un CSV avant si tu veux garder une copie."));
   const go=el("button","btn danger","Oui, tout effacer");go.style.justifyContent="center";
-  go.onclick=()=>{state={tx:[],budgets:{},subs:{},cats:state.cats||{},accounts:[]};persist();demo=true;fCat="all";viewMonth=todayISO().slice(0,7);closeModal();hideDemo();setStatus("Tout est effacé. Tu repars de zéro.");};
+  go.onclick=()=>{state={tx:[],budgets:{},subs:{},cats:state.cats||{},accounts:[],dr:state.dr||{}};persist();demo=true;fCat="all";viewMonth=todayISO().slice(0,7);closeModal();hideDemo();setStatus("Tout est effacé. Tu repars de zéro.");};
   b.appendChild(go);
 };
-$("#acctBtn").onclick=openAccount;$("#editBud").onclick=openBudgets;$("#acctsBtn").onclick=openAccounts;$("#catsBtn").onclick=openCats;$("#importBtn").onclick=openImport;$("#exportBtn").onclick=exportCsv;
+$("#acctBtn").onclick=openAccount;$("#editBud").onclick=openBudgets;$("#drBtn").onclick=openDR;$("#acctsBtn").onclick=openAccounts;$("#catsBtn").onclick=openCats;$("#importBtn").onclick=openImport;$("#exportBtn").onclick=exportCsv;
 $("#today").textContent=new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"});
 (function(){let t;try{t=localStorage.getItem("mc_theme");}catch(e){}if(t)document.documentElement.setAttribute("data-theme",t);
   $("#themeBtn").onclick=()=>{const cur=document.documentElement.getAttribute("data-theme");const light=cur?cur==="light":matchMedia("(prefers-color-scheme: light)").matches;const nv=light?"dark":"light";document.documentElement.setAttribute("data-theme",nv);try{localStorage.setItem("mc_theme",nv);}catch(e){}};})();
