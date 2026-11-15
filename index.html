@@ -1060,12 +1060,13 @@ function openDR(){
       const line=(t,strong)=>{const d=el("div",null);if(strong)d.appendChild(el("strong",null,t));else d.textContent=t;res.appendChild(d);};
       line("Abattement 10 % : "+money(ab,true)+"  ·  Frais réels (double résidence) : "+money(ded,true));
       line(ded>ab?"→ Les frais réels sont plus intéressants : "+money(ded-ab,true)+" de revenu imposable en moins. Case 1AK = "+money(ded)+" (+ tes autres frais réels éventuels).":"→ Garde l'abattement de 10 % ("+money(ab-ded,true)+" de plus que tes frais réels). Ne remplis pas la case 1AK.",true);
-      line("Rappel : avec les frais réels, les remboursements de frais reçus (JDA, STAPS) doivent être ajoutés aux salaires déclarés.");};
+      line("Rappel : un billet remboursé (fac, employeur) n'est pas déductible — écarte-le ici (sinon il faudrait ajouter le remboursement aux salaires déclarés).");};
     si.onchange=()=>{const v=parseNum(si.value);state.dr=state.dr||{};state.dr.salary=Object.assign({},state.dr.salary);if(v>0)state.dr.salary[year]=Math.round(v);else delete state.dr.salary[year];persist();calc();};
     si.oninput=calc;calc();body.appendChild(cmp);
     // suggestions
     if(sugg.length){const box=el("div","imports dr-sugg");const h=el("div","dr-h");h.appendChild(el("div","eyebrow","À confirmer ("+sugg.length+") — repérés automatiquement"));
-      const all=el("button","link-btn","Tout ajouter");all.type="button";all.onclick=()=>{sugg.forEach(t=>{t.dr={kind:drGuess(t),ded:+t.amount};});persist();render();draw();};h.appendChild(all);box.appendChild(h);
+      const all=el("button","link-btn","Tout ajouter");all.type="button";all.onclick=()=>{sugg.forEach(t=>{t.dr={kind:drGuess(t),ded:+t.amount};});persist();render();draw();};h.appendChild(all);
+      const none=el("button","link-btn","Tout écarter");none.type="button";none.title="Aucune de ces suggestions n'est un frais de double résidence (ex. billets remboursés)";none.onclick=()=>{if(!confirm("Écarter les "+sugg.length+" suggestions ? Elles ne seront plus proposées."))return;sugg.forEach(t=>{t.drNo=true;});persist();render();draw();};h.appendChild(none);box.appendChild(h);
       sugg.forEach(t=>{const k=drGuess(t),r=el("div","dr-row");
         const m=el("div","dr-main");m.appendChild(el("div","t",t.label||t.category));m.appendChild(el("div","s",t.date.split("-").reverse().join("/")+" · "+DR_KINDS[k]+(t.account?" · "+t.account:"")+(k==="loyer"&&t.amount>700?" · ⚠️ contient peut-être le dépôt de garantie":"")));
         r.appendChild(m);r.appendChild(el("span","amt",(t.type==="Remboursement"?"↩ +":"")+money(t.amount,true)));
@@ -1074,7 +1075,10 @@ function openDR(){
         r.appendChild(ok);r.appendChild(no);box.appendChild(r);});
       body.appendChild(box);}
     // lignes retenues
-    const list=el("div","imports");list.appendChild(el("div","eyebrow","Retenus pour "+year+" ("+kept.length+")"));
+    const list=el("div","imports");const lh=el("div","dr-h");lh.appendChild(el("div","eyebrow","Retenus pour "+year+" ("+kept.length+")"));
+    const keptTr=kept.filter(t=>t.dr.kind==="transport");
+    if(keptTr.length){const back=el("button","link-btn","Re-trier les trajets");back.type="button";back.title="Renvoie les "+keptTr.length+" trajets retenus dans « À confirmer » pour choisir un par un ceux à garder (ex. exclure les billets remboursés)";back.onclick=()=>{keptTr.forEach(t=>{delete t.dr;delete t.drNo;});persist();render();draw();};lh.appendChild(back);}
+    list.appendChild(lh);
     if(!kept.length)list.appendChild(el("p","note","Aucun frais retenu pour cette année. Ajoute les suggestions ci-dessus, ou ouvre un mouvement et choisis « Double résidence »."));
     kept.forEach((t,ix)=>{const r=el("div","dr-row");
       const m=el("div","dr-main");m.appendChild(el("div","t",t.label||t.category));m.appendChild(el("div","s",t.date.split("-").reverse().join("/")+" · payé "+money(t.amount,true)+(t.type==="Remboursement"?" (remboursé)":"")));r.appendChild(m);
