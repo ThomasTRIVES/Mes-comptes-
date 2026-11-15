@@ -1,0 +1,237 @@
+BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//Mes Comptes//Agenda fiscal//FR
+CALSCALE:GREGORIAN
+METHOD:PUBLISH
+X-WR-CALNAME:Agenda fiscal 💶
+X-WR-TIMEZONE:Europe/Paris
+REFRESH-INTERVAL;VALUE=DURATION:P1D
+X-PUBLISHED-TTL:P1D
+BEGIN:VEVENT
+UID:agenda-fiscal-0-20261130@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20261130
+DTEND;VALUE=DATE:20261201
+SUMMARY:💶 URSSAF : déclarer le chiffre d'affaires du mois précédent
+DESCRIPTION:Auto-entreprise : déclaration mensuelle du CA encaissé (même si 0 €).
+TRANSP:TRANSPARENT
+RRULE:FREQ=MONTHLY;BYMONTHDAY=-1;UNTIL=20271231
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:URSSAF : déclarer le chiffre d'affaires du mois précédent
+TRIGGER:-P5D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:URSSAF : déclarer le chiffre d'affaires du mois précédent
+TRIGGER:-P1D
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-1-20261201@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20261201
+DTEND;VALUE=DATE:20261202
+SUMMARY:💶 Double résidence : ranger loyer + billets du mois
+DESCRIPTION:Ranger la quittance de loyer et les billets de train du mois \; vérifier la fenêtre Double résidence de l'appli.
+TRANSP:TRANSPARENT
+RRULE:FREQ=MONTHLY;BYMONTHDAY=1;UNTIL=20271231
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Double résidence : ranger loyer + billets du mois
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-2-20261120@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20261120
+DTEND;VALUE=DATE:20261121
+SUMMARY:💶 Facturation électronique : choisir la plateforme de réception
+DESCRIPTION:Obligation de réception des factures électroniques depuis le 01/09/2026.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Facturation électronique : choisir la plateforme de réception
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-3-20261125@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20261125
+DTEND;VALUE=DATE:20261126
+SUMMARY:💶 Vérifier les factures clients en attente de paiement
+DESCRIPTION:Relancer les clients si besoin.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Vérifier les factures clients en attente de paiement
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-4-20261201@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20261201
+DTEND;VALUE=DATE:20261202
+SUMMARY:💶 Impôts : vérifier la réponse à la correction de déclaration 2025
+DESCRIPTION:Messagerie sécurisée impots.gouv.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Impôts : vérifier la réponse à la correction de déclaration 2025
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-5-20261210@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20261210
+DTEND;VALUE=DATE:20261211
+SUMMARY:💶 Impôts : vérifier le taux de prélèvement à la source
+DESCRIPTION:Espace particulier impots.gouv.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Impôts : vérifier le taux de prélèvement à la source
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-6-20270110@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20270110
+DTEND;VALUE=DATE:20270111
+SUMMARY:💶 Récupérer bulletin de décembre + récap CA de l'année
+DESCRIPTION:Pour la déclaration des revenus 2026.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Récupérer bulletin de décembre + récap CA de l'année
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-7-20270203@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20270203
+DTEND;VALUE=DATE:20270204
+SUMMARY:💶 Vérifier le paiement des vacations de l'automne
+DESCRIPTION:Garder le bulletin / l'attestation.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Vérifier le paiement des vacations de l'automne
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-8-20270415@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20270415
+DTEND;VALUE=DATE:20270416
+SUMMARY:💶 Impôts : déclaration des revenus 2026 (ouverture à confirmer)
+DESCRIPTION:Déclarer en ligne sur impots.gouv.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Impôts : déclaration des revenus 2026 (ouverture à confirmer)
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-9-20270520@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20270520
+DTEND;VALUE=DATE:20270521
+SUMMARY:💶 Impôts : date limite PROBABLE de la déclaration (à vérifier)
+DESCRIPTION:Fin mai / début juin selon le département.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Impôts : date limite PROBABLE de la déclaration (à vérifier)
+TRIGGER:-P7D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Impôts : date limite PROBABLE de la déclaration (à vérifier)
+TRIGGER:-P2D
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-10-20270601@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20270601
+DTEND;VALUE=DATE:20270602
+SUMMARY:💶 Facturation électronique : préparer l'émission (01/09/2027)
+DESCRIPTION:Vérifier que l'outil de facturation gère l'émission électronique.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Facturation électronique : préparer l'émission (01/09/2027)
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-11-20270802@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20270802
+DTEND;VALUE=DATE:20270803
+SUMMARY:💶 Impôts : avis d'impôt (revenus 2026)
+DESCRIPTION:Vérifier le montant\, le revenu fiscal de référence et le nouveau taux.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Impôts : avis d'impôt (revenus 2026)
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-12-20270915@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20270915
+DTEND;VALUE=DATE:20270916
+SUMMARY:💶 Versement libératoire : vérifier le droit pour l'an prochain (avant le 30/09)
+DESCRIPTION:Revenu fiscal de référence N-2 sous le plafond.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Versement libératoire : vérifier le droit pour l'an prochain (avant le 30/09)
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-13-20271201@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20271201
+DTEND;VALUE=DATE:20271202
+SUMMARY:💶 CFE : avis dans l'espace professionnel\, payer avant le 15/12
+DESCRIPTION:Espace professionnel impots.gouv.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:CFE : avis dans l'espace professionnel\, payer avant le 15/12
+TRIGGER:-P7D
+END:VALARM
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:CFE : avis dans l'espace professionnel\, payer avant le 15/12
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+BEGIN:VEVENT
+UID:agenda-fiscal-14-20280414@mes-comptes
+DTSTAMP:20261115T100000Z
+DTSTART;VALUE=DATE:20280414
+DTEND;VALUE=DATE:20280415
+SUMMARY:💶 Impôts : déclaration des revenus 2027 (frais réels\, case 1AK)
+DESCRIPTION:Export Double résidence de l'appli \; comparer avec l'abattement de 10 %.
+TRANSP:TRANSPARENT
+BEGIN:VALARM
+ACTION:DISPLAY
+DESCRIPTION:Impôts : déclaration des revenus 2027 (frais réels\, case 1AK)
+TRIGGER:PT9H
+END:VALARM
+END:VEVENT
+END:VCALENDAR
