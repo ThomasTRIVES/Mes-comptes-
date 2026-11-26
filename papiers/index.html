@@ -171,7 +171,20 @@ const FOLDERS=[
 const FCOL=Object.fromEntries(FOLDERS.map(f=>[f[0],f[1]])),FSVG=Object.fromEntries(FOLDERS.map(f=>[f[0],f[2]]));
 const svg=p=>'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+p+'</svg>';
 
-let sb=null,uid=null,userEmail="",files=[],folder=null,q="";
+let sb=null,uid=null,userEmail="",files=[],folder=null,q="",offline=false;
+if("serviceWorker" in navigator)navigator.serviceWorker.register("../sw.js",{scope:"../"}).catch(()=>{});
+/* ---- copie sur l'appareil (pour l'avion, la Thaïlande…) : la liste dans localStorage, les documents dans IndexedDB ---- */
+const LIST="mp_list";
+const saveList=()=>{try{localStorage.setItem(LIST,JSON.stringify(files));}catch(e){}};
+const readList=()=>{try{const l=JSON.parse(localStorage.getItem(LIST)||"null");return Array.isArray(l)?l:null;}catch(e){return null;}};
+let idbP=null;
+function idb(){if(!idbP)idbP=new Promise((res,rej)=>{const r=indexedDB.open("mp_offline",1);r.onupgradeneeded=()=>r.result.createObjectStore("files");r.onsuccess=()=>res(r.result);r.onerror=()=>rej(r.error);});return idbP;}
+async function idbDo(mode,fn){const db=await idb();return new Promise((res,rej)=>{const t=db.transaction("files",mode),st=t.objectStore("files");let out;const r=fn(st);if(r)r.onsuccess=()=>{out=r.result;};t.oncomplete=()=>res(out);t.onerror=()=>rej(t.error);});}
+const idbGet=id=>idbDo("readonly",st=>st.get(id)).catch(()=>null);
+const idbPut=(id,v)=>idbDo("readwrite",st=>st.put(v,id)).catch(()=>null);
+const idbKeys=()=>idbDo("readonly",st=>st.getAllKeys()).catch(()=>[]);
+const idbDel=id=>idbDo("readwrite",st=>st.delete(id)).catch(()=>null);
+const idbClear=()=>idbDo("readwrite",st=>st.clear()).catch(()=>null);
 try{const t=localStorage.getItem("mc_theme");if(t)document.documentElement.setAttribute("data-theme",t);}catch(e){}
 try{history.scrollRestoration="manual";}catch(e){}
 
@@ -187,7 +200,8 @@ const norm=s=>String(s||"").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g,""
 function render(){
   const v=$("#view");v.innerHTML="";
   $("#backBtn").hidden=!folder;$("#title").innerHTML="";if(!folder){const d=el("span","dot");$("#title").appendChild(d);}$("#title").appendChild(document.createTextNode(folder||"Mes Papiers"));
-  if(!uid){return;}
+  if(!uid&&!offline){return;}
+  if(offline){const n=el("div","note");n.style.cssText="margin:-4px 2px 10px";n.textContent="📴 Hors connexion : tu vois la copie gardée sur ce téléphone.";v.appendChild(n);}
   if(!files.length){const e=el("div","empty");e.appendChild(el("strong",null,"Aucun document pour l'instant"));e.appendChild(el("span",null,"Claude y range tes papiers au fur et à mesure. Tu peux aussi en ajouter avec le menu ⋯."));v.appendChild(e);return;}
   if(q.trim()){const w=norm(q).split(/\s+/).filter(Boolean);const hit=files.filter(f=>{const s=norm(f.name+" "+pretty(f)+" "+f.folder+" "+when(f));return w.every(x=>s.includes(x));});
     v.appendChild(el("div","eyebrow",hit.length+" résultat"+(hit.length>1?"s":"")));if(hit.length)v.appendChild(listOf(hit,true));return;}
@@ -210,7 +224,11 @@ function row(f,showFolder){const b=el("button","row");b.type="button";const e=ex
   const m=el("div","m");m.appendChild(el("div","t",pretty(f)));m.appendChild(el("div","s",[showFolder?f.folder:"",when(f),size(f.size)].filter(Boolean).join(" · ")));b.appendChild(m);b.appendChild(el("span","chev","›"));b.onclick=()=>openFile(f);return b;}
 
 /* ---- ouvrir un document (visionneuse intégrée, marche aussi dans l'appli installée) ---- */
-async function fetchBlob(f,onp){const parts=[];const step=4;
+async function fetchBlob(f,onp){
+  const kept=await idbGet(f.id);if(kept&&kept.blob&&(!f.sha256||kept.sha===f.sha256))return kept.blob;
+  if(offline||!sb)throw new Error("hors connexion");
+  const b=await fetchRemote(f,onp);idbPut(f.id,{sha:f.sha256||"",blob:b});return b;}
+async function fetchRemote(f,onp){const parts=[];const step=4;
   for(let i=0;i<f.chunks;i+=step){const{data,error}=await sb.from("mp_chunks").select("idx,data").eq("file_id",f.id).gte("idx",i).lt("idx",i+step).order("idx");if(error)throw error;data.forEach(c=>parts[c.idx]=c.data);if(onp)onp(Math.min(1,(i+step)/f.chunks));}
   const bytes=[];parts.forEach(b64=>{const s=atob(b64),u=new Uint8Array(s.length);for(let k=0;k<s.length;k++)u[k]=s.charCodeAt(k);bytes.push(u);});
   return new Blob(bytes,{type:f.mime});}
@@ -222,7 +240,7 @@ async function openFile(f){
   const share=el("button");share.innerHTML=svg('<path d="M12 15V3M8 7l4-4 4 4"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/>')+"Partager";share.disabled=true;top.appendChild(share);
   vw.appendChild(top);vw.appendChild(body);document.body.appendChild(vw);document.body.style.overflow="hidden";
   const msg=el("div","v-msg","Ouverture…"),bar=el("div","bar"),bs=el("span");bar.appendChild(bs);body.appendChild(msg);body.appendChild(bar);
-  let blob;try{blob=cache.get(f.id)||await fetchBlob(f,p=>{bs.style.width=Math.round(p*100)+"%";});cache.set(f.id,blob);}catch(e){msg.textContent="Impossible d'ouvrir ce document (connexion ?).";bar.remove();return;}
+  let blob;try{blob=cache.get(f.id)||await fetchBlob(f,p=>{bs.style.width=Math.round(p*100)+"%";});cache.set(f.id,blob);}catch(e){msg.textContent=offline||!navigator.onLine?"Ce document n'est pas encore gardé sur ton téléphone. Avec internet, ouvre-le une fois ou utilise ⋯ → Garder tout hors connexion.":"Impossible d'ouvrir ce document (connexion ?).";bar.remove();return;}
   const file=new File([blob],f.name,{type:f.mime});
   share.disabled=false;share.onclick=async()=>{try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:pretty(f)});return;}}catch(e){if(e&&e.name==="AbortError")return;}
     const a=document.createElement("a");a.href=URL.createObjectURL(file);a.download=f.name;document.body.appendChild(a);a.click();a.remove();};
@@ -246,10 +264,26 @@ function openMenu(){
   const b=modal("Menu");const g=el("div");
   const item=(t,s,fn)=>{const r=el("button","menu-row");r.type="button";const x=el("span",null,t);if(s)x.appendChild(el("small",null,s));r.appendChild(x);r.appendChild(el("span","chev","›"));r.onclick=fn;g.appendChild(r);};
   item("Ajouter un document","PDF ou photo, rangé dans le dossier choisi",openAdd);
+  item("Garder tout hors connexion","Pour ouvrir tes papiers sans internet (avion, étranger)",openOffline);
   item("Accès pour Claude","Clé pour que Claude range tes documents",openClaude);
   item("Thème clair / sombre",null,()=>{const cur=document.documentElement.getAttribute("data-theme");const light=cur?cur==="light":matchMedia("(prefers-color-scheme: light)").matches;const nv=light?"dark":"light";document.documentElement.setAttribute("data-theme",nv);try{localStorage.setItem("mc_theme",nv);}catch(e){}});
-  item("Se déconnecter",userEmail,async()=>{await sb.auth.signOut();uid=null;files=[];closeModal();render();showLogin();});
+  item("Se déconnecter",userEmail,async()=>{try{await sb.auth.signOut();}catch(e){}uid=null;offline=false;files=[];try{localStorage.removeItem(LIST);}catch(e){}await idbClear();closeModal();render();showLogin();});
   b.appendChild(g);
+}
+async function openOffline(){
+  const b=modal("Hors connexion");
+  b.appendChild(el("p","note","Garde une copie de tous tes documents sur ce téléphone : tu peux les ouvrir sans internet. Les documents que tu ouvres sont aussi gardés automatiquement. La copie est effacée si tu te déconnectes."));
+  const st=el("div","note");b.appendChild(st);
+  const refresh=async()=>{const k=new Set(await idbKeys()),kept=files.filter(f=>k.has(f.id));const sz=kept.reduce((s,f)=>s+f.size,0),all=files.reduce((s,f)=>s+f.size,0);
+    st.innerHTML="";st.appendChild(el("strong",null,kept.length+" / "+files.length+" documents gardés"));st.appendChild(document.createTextNode(" · "+size(sz)+" sur "+size(all)));return kept.length;};
+  await refresh();
+  const go=el("button","btn primary","Tout télécharger maintenant");b.appendChild(go);
+  const prog=el("div","bar");prog.style.width="100%";const ps=el("span");prog.appendChild(ps);prog.hidden=true;b.appendChild(prog);
+  go.onclick=async()=>{if(offline||!navigator.onLine){st.textContent="Il faut internet pour télécharger.";return;}go.disabled=true;prog.hidden=false;
+    const k=new Set(await idbKeys()),todo=files.filter(f=>!k.has(f.id));let done=0,err=0;
+    for(const f of todo){try{const bl=await fetchRemote(f);await idbPut(f.id,{sha:f.sha256||"",blob:bl});}catch(e){err++;}done++;ps.style.width=Math.round(done/todo.length*100)+"%";go.textContent="Téléchargement… "+done+" / "+todo.length;}
+    go.textContent=err?"Terminé ("+err+" en échec, réessaie)":"✓ Tout est gardé sur ce téléphone";await refresh();};
+  const clr=el("button","btn danger","Effacer la copie de ce téléphone");clr.onclick=async()=>{if(!confirm("Effacer la copie hors connexion ?"))return;await idbClear();await refresh();};b.appendChild(clr);
 }
 function openAdd(){
   const b=modal("Ajouter un document");
@@ -301,15 +335,20 @@ function showLogin(){
   p.addEventListener("keydown",ev=>{if(ev.key==="Enter")go.click();});
 }
 async function load(){
-  const{data,error}=await sb.from("mp_files").select("id,path,folder,name,mime,size,chunks,doc_date,added_at").order("path");
+  const{data,error}=await sb.from("mp_files").select("id,path,folder,name,mime,size,sha256,chunks,doc_date,added_at").order("path");
+  if(error&&files.length===0&&readList()&&!navigator.onLine){files=readList();offline=true;render();return;}
   if(error){$("#view").innerHTML="";const e=el("div","empty");e.appendChild(el("strong",null,/mp_files|relation|schema/i.test(error.message)?"Mes Papiers n'est pas encore installé":"Connexion impossible"));
     e.appendChild(el("span",null,/mp_files|relation|schema/i.test(error.message)?"Colle le fichier papiers-setup.sql dans Supabase → SQL Editor → Run, puis rouvre cette page.":"Vérifie ta connexion internet, puis rouvre la page."));$("#view").appendChild(e);return;}
-  files=data||[];render();}
+  files=data||[];offline=false;saveList();render();
+  idbKeys().then(ks=>{const ids=new Set(files.map(f=>f.id));ks.forEach(k=>{if(!ids.has(k))idbDel(k);});});}
 async function start(user){uid=user.id;userEmail=user.email||"";$("#gate").hidden=true;$("#view").innerHTML='<div class="empty"><strong>Chargement de tes documents…</strong></div>';await load();}
 async function boot(){
-  if(!window.supabase){$("#view").innerHTML='<div class="empty"><strong>Connexion impossible</strong><span>Vérifie internet, puis rouvre l\'appli.</span></div>';return;}
+  const cached=readList();
+  const goOffline=()=>{if(!cached)return false;files=cached;offline=true;$("#gate").hidden=true;render();window.addEventListener("online",()=>location.reload(),{once:true});return true;};
+  if(!navigator.onLine&&goOffline())return;
+  if(!window.supabase){if(goOffline())return;$("#view").innerHTML='<div class="empty"><strong>Connexion impossible</strong><span>Vérifie internet, puis rouvre l\'appli.</span></div>';return;}
   sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"mc_auth"}});
-  const{data}=await sb.auth.getSession();if(data&&data.session)start(data.session.user);else{$("#view").innerHTML="";showLogin();}
+  let data=null;try{({data}=await sb.auth.getSession());}catch(e){}if(data&&data.session)start(data.session.user);else if(!navigator.onLine&&goOffline()){}else{$("#view").innerHTML="";showLogin();}
   document.addEventListener("visibilitychange",()=>{if(!document.hidden&&uid)load();});
 }
 $("#q").oninput=e=>{q=e.target.value;render();};

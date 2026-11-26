@@ -617,6 +617,8 @@ function savePrefs(){try{localStorage.setItem("mc_prefs",JSON.stringify({range,f
    Laissées vides, l'app les demande au premier lancement et les garde sur l'appareil. ---- */
 const SUPABASE_URL="https://qvvsysyrqaguemwbhagh.supabase.co";
 const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF2dnN5c3lycWFndWVtd2JoYWdoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTMzNzkxMzMsImV4cCI6MjEwODk1NTEzM30.spHIUL1JIa552A9YQcIlWzReen-pkHbTZR9rFDbcilE";
+// appli disponible sans connexion (sw.js : pages, bibliothèques et polices gardées sur l'appareil)
+if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});
 function sbConfig(){if(SUPABASE_URL&&SUPABASE_ANON_KEY)return{url:SUPABASE_URL,key:SUPABASE_ANON_KEY};try{return JSON.parse(localStorage.getItem("mc_sb")||"null");}catch(e){return null;}}
 
 /* ---- persistance : un document par mois + réglages (table mc_docs, une ligne par document) ---- */
@@ -632,7 +634,7 @@ function storeDocs(){
 let sb=null,uid=null,userEmail="",chain=Promise.resolve(),unsynced=false,started=false;
 function setSync(st,txt){const d=$("#syncDot");d.hidden=!uid;d.className="sync"+(st?" "+st:"");d.textContent=txt||"";}
 function persist(){
-  saveLocal();if(!uid)return;
+  saveLocal();if(!uid){if(loaded&&!demo)try{localStorage.setItem("mc_dirty","1");}catch(e){}return;}
   const docs=storeDocs(),ops=[];
   Object.keys(docs).forEach(k=>{if(written[k]!==docs[k])ops.push([k,docs[k]]);});
   Object.keys(written).forEach(k=>{if(k.startsWith("m-")&&!(k in docs))ops.push([k,null]);});
@@ -663,6 +665,9 @@ function applyDocs(rows){
   const first=!loaded;loaded=true;
   // tout premier lancement sur un espace vide : on envoie ce que cet appareil avait déjà
   if(first&&!rows.length){const local=loadLocal();if(local&&Array.isArray(local.tx)&&local.tx.length){state={tx:local.tx,budgets:local.budgets||{},subs:local.subs||{},me:local.me||"",cats:local.cats||{},accounts:local.accounts||[],dr:local.dr||{},ui:local.ui||{}};demo=false;persist();setStatus("");render();return;}}
+  // modifications faites hors connexion (avant la reconnexion) : la copie de cet appareil fait foi et part maintenant
+  let dirty=false;try{dirty=localStorage.getItem("mc_dirty")==="1";}catch(e){}
+  if(dirty){try{localStorage.removeItem("mc_dirty");}catch(e){}const lc=loadLocal();if(lc&&Array.isArray(lc.tx)){state={tx:lc.tx,budgets:lc.budgets||{},subs:lc.subs||{},me:lc.me||"",cats:lc.cats||{},accounts:lc.accounts||[],dr:lc.dr||{},ui:lc.ui||{}};demo=false;persist();setStatus("");render();return;}}
   // modifications faites hors ligne sur cet appareil : elles partent maintenant
   if(unsynced){unsynced=false;persist();return;}
   state={tx,budgets,subs,me,cats,accounts,dr,ui};demo=!tx.length;saveLocal();setStatus("");render();
@@ -692,8 +697,11 @@ async function boot(){
   try{sb=supabase.createClient(cfg.url,cfg.key,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"mc_auth"}});}catch(e){showSetup("Adresse ou clé invalide.");return;}
   // retour depuis le mail « mot de passe oublié » : on demande le nouveau mot de passe
   sb.auth.onAuthStateChange(ev=>{if(ev==="PASSWORD_RECOVERY")setTimeout(showNewPassword,0);});
-  const{data}=await sb.auth.getSession();
-  if(data&&data.session)startSession(data.session.user);else showLogin();
+  let data=null;try{({data}=await sb.auth.getSession());}catch(e){}
+  if(data&&data.session)startSession(data.session.user);
+  // sans connexion : on reste sur les données de cet appareil (pas d'écran de connexion)
+  else if(!navigator.onLine&&local&&Array.isArray(local.tx)){fallbackLocal("Hors connexion : données de cet appareil.");window.addEventListener("online",()=>location.reload(),{once:true});}
+  else showLogin();
 }
 function gate(){const g=$("#gate"),b=$("#gateBody");b.innerHTML="";g.hidden=false;return b;}
 function field(label,type,id,ph){const l=el("label","fld");l.appendChild(el("span",null,label));const i=el("input");i.type=type;i.id=id;if(ph)i.placeholder=ph;l.appendChild(i);return[l,i];}
