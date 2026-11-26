@@ -281,7 +281,7 @@ async function openOffline(){
   const prog=el("div","bar");prog.style.width="100%";const ps=el("span");prog.appendChild(ps);prog.hidden=true;b.appendChild(prog);
   go.onclick=async()=>{if(offline||!navigator.onLine){st.textContent="Il faut internet pour télécharger.";return;}go.disabled=true;prog.hidden=false;
     const k=new Set(await idbKeys()),todo=files.filter(f=>!k.has(f.id));let done=0,err=0;
-    for(const f of todo){try{const bl=await fetchRemote(f);await idbPut(f.id,{sha:f.sha256||"",blob:bl});}catch(e){err++;}done++;ps.style.width=Math.round(done/todo.length*100)+"%";go.textContent="Téléchargement… "+done+" / "+todo.length;}
+    for(const f of todo){try{const bl=await fetchRemote(f);await idbPut(f.id,{sha:f.sha256||"",blob:bl});}catch(e){err++;}done++;ps.style.width=Math.round(done/todo.length*100)+"%";go.textContent="Téléchargement… "+done+" / "+todo.length;await refresh();}
     go.textContent=err?"Terminé ("+err+" en échec, réessaie)":"✓ Tout est gardé sur ce téléphone";await refresh();};
   const clr=el("button","btn danger","Effacer la copie de ce téléphone");clr.onclick=async()=>{if(!confirm("Effacer la copie hors connexion ?"))return;await idbClear();await refresh();};b.appendChild(clr);
 }
