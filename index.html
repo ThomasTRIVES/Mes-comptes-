@@ -58,7 +58,8 @@ button{font-family:inherit;cursor:pointer;color:inherit}
 .wrap{max-width:1440px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
 
 /* en-tête */
-header{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);border-bottom:1px solid var(--line)}
+/* la zone de la barre d'état est DANS l'en-tête (padding) : collé en haut, il ne recouvre jamais le début de la page */
+header{position:sticky;top:0;padding-top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);border-bottom:1px solid var(--line)}
 body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:21;background:var(--bg)}
 .hrow{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;padding-block:14px 12px}
 .brand{font-family:var(--display);font-weight:700;font-size:1.35rem;letter-spacing:-.02em;display:flex;align-items:center;gap:9px}
