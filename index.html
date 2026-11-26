@@ -338,6 +338,17 @@ button.w-grp{width:calc(100% - 12px);border:0;background:transparent;font-family
 .w-acc .n small{display:block;color:var(--faint);font-weight:500;font-size:.74rem;white-space:normal}
 .w-acc .v{font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .w-acc .v.neg{color:var(--neg)}
+/* objectif d'épargne */
+.goal{margin-top:18px;border:1px solid var(--line);border-radius:14px;padding:12px 14px;background:linear-gradient(160deg,var(--accent-soft),transparent 75%),var(--panel-2)}
+.goal-h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.goal-h .eyebrow{color:var(--accent)}
+.goal-n{font-weight:700;font-size:.95rem;margin-top:4px}
+.goal-v{font-family:var(--display);font-weight:700;font-size:1.35rem;letter-spacing:-.02em;margin-top:2px;font-variant-numeric:tabular-nums}
+.goal-v small{font-family:var(--font);font-weight:500;font-size:.8rem;color:var(--muted);letter-spacing:0}
+.goal .track{height:8px;margin:8px 0 6px}
+.goal-l{font-size:.78rem;color:var(--muted);line-height:1.5}
+.goal-l b{color:var(--ink)}.goal-l b.pos{color:var(--pos)}.goal-l b.neg{color:var(--neg)}
+.goal-add{margin-top:14px}
 .w-miss{font-size:.76rem;color:var(--faint);margin:8px 6px 0}
 .w-miss button{font-size:.76rem}
 /* interrupteur */
@@ -956,6 +967,7 @@ function renderWealth(){
   const lo=Math.min(...pts.map(p=>p[1])),hi=Math.max(...pts.map(p=>p[1])),sp=el("div","w-spark");sp.setAttribute("aria-label","Évolution sur 6 mois");
   pts.forEach(([ym,v])=>{const c=el("div");c.title=MONTHS[+ym.slice(5)-1]+" : "+fmt(v);const b=el("span");b.style.height=(hi>lo?18+(v-lo)/(hi-lo)*82:60)+"%";c.appendChild(b);c.appendChild(el("small",null,SHORT[+ym.slice(5)-1]));sp.appendChild(c);});
   left.appendChild(sp);
+  goalBlock(left);
   // comptes, regroupés par genre ; toucher un compte montre ses mouvements
   KIND_ORD.forEach(k=>{const accs=vis.filter(a=>kindOf(a)===k);if(!accs.length)return;
     // sur téléphone, un groupe de 3 comptes ou plus est replié : toucher l'en-tête l'ouvre
@@ -972,6 +984,46 @@ function renderWealth(){
   if(miss){const m=el("div","w-miss",miss+" compte"+(miss>1?"s":"")+" sans solde : ");const b=el("button","link-btn","le"+(miss>1?"s":"")+" compléter");b.onclick=openAccounts;m.appendChild(b);right.appendChild(m);}
 }
 const isPhone=()=>matchMedia("(max-width:740px)").matches;
+/* ---- objectif d'épargne (state.ui.goal = {name, target, date "AAAA-MM", reserve, monthly}) ----
+   compté : solde du jour des comptes Épargne + Placement, moins la réserve de sécurité */
+const goalOf=()=>state.ui&&state.ui.goal&&state.ui.goal.target>0?state.ui.goal:null;
+const monthLabel=ym=>MONTHS[+ym.slice(5)-1]+" "+ym.slice(0,4);
+function goalNow(g){const t=todayISO();const sav=accountRecords().filter(a=>ownerOk(a)&&typeof a.balance==="number"&&isSavKind(kindOf(a))).reduce((s,a)=>s+balanceAt(a,t),0);return Math.max(0,sav-(+g.reserve||0));}
+function goalBlock(host){
+  const g=goalOf();
+  if(!g){const b=el("button","btn outline goal-add","＋ Fixer un objectif d'épargne");b.type="button";b.onclick=openGoal;host.appendChild(b);return;}
+  const have=goalNow(g),left=Math.max(0,g.target-have),pct=Math.min(100,have/g.target*100),cur=mIdx(todayISO().slice(0,7));
+  const box=el("div","goal");const h=el("div","goal-h");h.appendChild(el("div","eyebrow","Objectif"));const ed=el("button","link-btn","Modifier");ed.onclick=openGoal;h.appendChild(ed);box.appendChild(h);
+  box.appendChild(el("div","goal-n",g.name||"Mon objectif"));
+  const v=el("div","goal-v",money(have)+" ");v.appendChild(el("small",null,"/ "+money(g.target)));box.appendChild(v);
+  const tr=el("div","track"),f=el("div","fill");f.style.width=pct+"%";tr.appendChild(f);box.appendChild(tr);
+  const l=el("div","goal-l");
+  if(!left){l.appendChild(el("b","pos","Objectif atteint 🎉"));}
+  else{l.appendChild(document.createTextNode(Math.floor(pct)+" % · il reste "));l.appendChild(el("b",null,money(left)));
+    if(g.date&&/^\d{4}-\d{2}$/.test(g.date)){const n=mIdx(g.date)-cur;l.appendChild(el("br"));
+      if(n>0){l.appendChild(document.createTextNode("Pour "+monthLabel(g.date)+" : "));l.appendChild(el("b",null,money(Math.ceil(left/n))+" / mois"));}
+      else l.appendChild(el("b","neg","La date visée est passée"));}
+    if(+g.monthly>0){const eta=ymOf(cur+Math.ceil(left/g.monthly)),ok=!g.date||eta<=g.date;l.appendChild(el("br"));l.appendChild(document.createTextNode("À "+money(g.monthly)+" / mois : atteint en "));l.appendChild(el("b",ok?"pos":"neg",monthLabel(eta)));}}
+  if(+g.reserve>0){l.appendChild(el("br"));l.appendChild(document.createTextNode("(épargne + placements, moins "+money(g.reserve)+" de sécurité)"));}
+  box.appendChild(l);host.appendChild(box);
+}
+function openGoal(){
+  const g=goalOf()||{};const b=modal("Objectif d'épargne");
+  b.appendChild(el("p","note","Compte tes livrets et placements d'aujourd'hui, moins une réserve de sécurité que tu ne touches pas. L'appli montre combien mettre de côté chaque mois pour tenir la date, et quand tu y arrives à ton rythme."));
+  const grid=el("div","acct-grid");const f=(label,inp)=>{const l=el("label","fld");l.appendChild(el("span",null,label));l.appendChild(inp);grid.appendChild(l);return inp;};
+  const nm=f("Nom",el("input"));nm.id="goalName";nm.placeholder="ex. Apport appartement";nm.value=g.name||"";
+  const tg=f("Montant visé (€)",el("input"));tg.id="goalTarget";tg.inputMode="decimal";tg.value=g.target?String(g.target):"";
+  const dt=f("Pour (mois)",el("input"));dt.id="goalDate";dt.type="month";dt.value=g.date||"";
+  const rs=f("Réserve de sécurité (€)",el("input"));rs.id="goalReserve";rs.inputMode="decimal";rs.placeholder="non comptée";rs.value=g.reserve?String(g.reserve):"";
+  const mo=f("Je mets de côté (€ / mois)",el("input"));mo.id="goalMonthly";mo.inputMode="decimal";mo.value=g.monthly?String(g.monthly):"";
+  b.appendChild(grid);const msg=el("div","err");msg.hidden=true;b.appendChild(msg);
+  const save=el("button","btn primary","Enregistrer");save.type="button";save.style.justifyContent="center";
+  save.onclick=()=>{const t=parseNum(tg.value);if(!(t>0)){msg.textContent="Indique le montant visé.";msg.hidden=false;return;}
+    const r=parseNum(rs.value),m=parseNum(mo.value);state.ui=Object.assign({},state.ui,{goal:{name:nm.value.trim().slice(0,40)||"Mon objectif",target:Math.round(t),date:dt.value||"",reserve:r>0?Math.round(r):0,monthly:m>0?Math.round(m):0}});
+    if(!wealthOn())state.ui.wealth=true;persist();render();closeModal();};
+  b.appendChild(save);
+  if(goalOf()){const del=el("button","btn danger","Retirer l'objectif");del.type="button";del.onclick=()=>{state.ui=Object.assign({},state.ui);delete state.ui.goal;persist();render();closeModal();};b.appendChild(del);}
+}
 function setTab(t){document.body.dataset.tab=t;[...document.querySelectorAll("#tabbar [data-tab]")].forEach(b=>{if(b.dataset.tab===t)b.setAttribute("aria-current","page");else b.removeAttribute("aria-current");});window.scrollTo(0,0);}
 function renderPlus(){
   const host=$("#plusCard");host.innerHTML="";
@@ -980,6 +1032,7 @@ function renderPlus(){
   const cb=el("input","tog");cb.type="checkbox";cb.id="plusWealth";cb.checked=wealthOn();cb.onchange=()=>setWealth(cb.checked);sw.appendChild(cb);g1.appendChild(sw);
   const row=(g,t,s,fn)=>{const b=el("button","p-row");b.type="button";const x=el("span",null,t);if(s)x.appendChild(el("small",null,s));b.appendChild(x);b.appendChild(el("span","chev","›"));b.onclick=fn;g.appendChild(b);};
   row(g1,"Mes comptes","Soldes, genre (courant, épargne…), banque",openAccounts);
+  row(g1,"Mon objectif",goalOf()?goalOf().name+" · "+money(goalOf().target):"Apport, voyage… : jauge et date",openGoal);
   row(g1,"Mes catégories",null,openCats);
   row(g1,"Budgets mensuels",null,openBudgets);
   row(g2,"Importer un relevé","PDF, Excel, CSV, OFX",openImport);
