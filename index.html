@@ -349,6 +349,9 @@ button.w-grp{width:calc(100% - 12px);border:0;background:transparent;font-family
 .goal-l{font-size:.78rem;color:var(--muted);line-height:1.5}
 .goal-l b{color:var(--ink)}.goal-l b.pos{color:var(--pos)}.goal-l b.neg{color:var(--neg)}
 .goal-add{margin-top:14px}
+.goal-tip{display:flex;align-items:center;gap:11px;margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}
+.goal-tip .gt1{font-weight:700;font-size:.9rem}
+.goal-tip .gt2{font-size:.76rem;color:var(--muted)}
 .w-miss{font-size:.76rem;color:var(--faint);margin:8px 6px 0}
 .w-miss button{font-size:.76rem}
 /* interrupteur */
@@ -989,6 +992,14 @@ const isPhone=()=>matchMedia("(max-width:740px)").matches;
 const goalOf=()=>state.ui&&state.ui.goal&&state.ui.goal.target>0?state.ui.goal:null;
 const monthLabel=ym=>MONTHS[+ym.slice(5)-1]+" "+ym.slice(0,4);
 function goalNow(g){const t=todayISO();const sav=accountRecords().filter(a=>ownerOk(a)&&typeof a.balance==="number"&&isSavKind(kindOf(a))).reduce((s,a)=>s+balanceAt(a,t),0);return Math.max(0,sav-(+g.reserve||0));}
+// où placer l'argent du mois : le livret (Épargne) au meilleur taux qui a encore de la place avant son plafond
+function bestSaving(){const t=todayISO();
+  const c=accountRecords().filter(a=>ownerOk(a)&&kindOf(a)==="epargne").map(a=>{const b=typeof a.balance==="number"?balanceAt(a,t):0;return{a,room:typeof a.cap==="number"?a.cap-b:Infinity,rate:typeof a.rate==="number"?a.rate:null};})
+    .filter(x=>x.room>=1);
+  if(!c.length)return null;
+  const guess=n=>/\bLEP\b/i.test(n)?3:/livret a|\bLDDS?\b/i.test(n)?2:1;
+  c.sort((x,y)=>(y.rate??-1)-(x.rate??-1)||guess(y.a.name)-guess(x.a.name)||(x.room-y.room));
+  return c[0];}
 function goalBlock(host){
   const g=goalOf();
   if(!g){const b=el("button","btn outline goal-add","＋ Fixer un objectif d'épargne");b.type="button";b.onclick=openGoal;host.appendChild(b);return;}
@@ -1005,7 +1016,18 @@ function goalBlock(host){
       else l.appendChild(el("b","neg","La date visée est passée"));}
     if(+g.monthly>0){const eta=ymOf(cur+Math.ceil(left/g.monthly)),ok=!g.date||eta<=g.date;l.appendChild(el("br"));l.appendChild(document.createTextNode("À "+money(g.monthly)+" / mois : atteint en "));l.appendChild(el("b",ok?"pos":"neg",monthLabel(eta)));}}
   if(+g.reserve>0){l.appendChild(el("br"));l.appendChild(document.createTextNode("(épargne + placements, moins "+money(g.reserve)+" de sécurité)"));}
-  box.appendChild(l);host.appendChild(box);
+  box.appendChild(l);
+  // conseil de virement du mois
+  const best=left?bestSaving():null;
+  if(best){const amt=+g.monthly>0?+g.monthly:null,put=amt&&best.room<Infinity?Math.min(amt,Math.floor(best.room)):amt;
+    const tip=el("div","goal-tip");tip.appendChild(accIcon(best.a,"epargne"));const tx=el("div");
+    const t1=el("div","gt1",(put?"Vire "+money(put)+" vers ":"Place ton épargne sur ")+best.a.name);tx.appendChild(t1);
+    const why=[best.a.bank,best.rate!=null?String(best.rate).replace(".",",")+" %":"",best.room<Infinity?"reste "+money(best.room)+" avant le plafond":"pas de plafond"].filter(Boolean).join(" · ");
+    tx.appendChild(el("div","gt2",why));
+    if(amt&&best.room<amt){const nx=accountRecords().filter(a=>a.name!==best.a.name&&ownerOk(a)&&kindOf(a)==="epargne"&&(typeof a.cap!=="number"||a.cap-(typeof a.balance==="number"?balanceAt(a,todayISO()):0)>=1)).sort((x,y)=>(y.rate??-1)-(x.rate??-1))[0];
+      if(nx)tx.appendChild(el("div","gt2","puis "+money(amt-put)+" vers "+nx.name+" ("+best.a.name+" plein)"));}
+    tip.appendChild(tx);box.appendChild(tip);}
+  host.appendChild(box);
 }
 function openGoal(){
   const g=goalOf()||{};const b=modal("Objectif d'épargne");
