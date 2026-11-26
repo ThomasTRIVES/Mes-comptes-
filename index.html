@@ -371,8 +371,9 @@ input.tog:checked::after{left:21px}
   .monthnav .mlabel{min-width:66px;font-size:.82rem}
   .monthnav button{width:24px}
   .brand{font-size:1.05rem;white-space:nowrap;gap:7px}
-  .hrow{gap:6px}.tools{flex-wrap:nowrap;gap:5px}
+  .hrow{gap:4px}.tools{flex-wrap:nowrap;gap:5px}
   #rangeSel,#ownerSel{padding:7px 4px;font-size:.78rem}
+  .hrow .sync{font-size:0;gap:0;flex:none} /* sur téléphone : juste le point vert/rouge */
   .w-chips{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin-inline:-16px;padding-inline:16px}
   .w-chips::-webkit-scrollbar{display:none}
   .w-chips button{flex:none}
@@ -897,7 +898,10 @@ function fillFilters(){
   os.hidden=!owners.length||(owners.length<2&&!anon);os.innerHTML="";os.appendChild(opt("all","Tout le monde"));owners.forEach(o=>os.appendChild(opt(o,o)));if(anon&&owners.length)os.appendChild(opt("","Sans titulaire"));os.value=fOwner;
   cs.value=fCat;as.value=fAcc;$("#typeSel").value=fType;$("#rangeSel").value=String(range);
 }
+let topDone=false;
 function render(){
+  // à l'ouverture (et quand les données arrivent) la page commence tout en haut
+  if(!topDone&&loaded){topDone=true;requestAnimationFrame(()=>window.scrollTo(0,0));}
   fillFilters();
   const[,e]=rangeBounds();$("#mLabel").textContent=(isPhone()?SHORT[e%12]+".":MONTHS[e%12])+" "+Math.floor(e/12);
   const tx=periodTx();
@@ -1867,6 +1871,7 @@ $("#clearCat").onclick=()=>{fCat="all";render();};
 $("#avoidShow").onclick=()=>{fType="need";render();if(isPhone())setTab("moves");else $(".moves").scrollIntoView({behavior:"smooth",block:"start"});};
 [...document.querySelectorAll("#tabbar [data-tab]")].forEach(b=>b.onclick=()=>setTab(b.dataset.tab));
 $("#fabAdd").onclick=()=>{const b=modal("Ajouter un mouvement");txForm(b,null,closeModal);setTimeout(()=>{const i=$("#fabAmount");if(i)i.focus();},60);};
+try{history.scrollRestoration="manual";}catch(e){}
 $("#wAccts").onclick=openAccounts;setTab("home");
 try{matchMedia("(max-width:740px)").addEventListener("change",()=>render());}catch(e){}
 $("#wipeBtn").onclick=()=>{
