@@ -12,7 +12,7 @@
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="manifest" href="manifest.webmanifest">
 <title>Mes Papiers</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700&family=Figtree:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'">
 <style>
 /* Mes Papiers : tous les documents (impôts, salaires, logement…) rangés par dossier. Mêmes couleurs que Mes Comptes. */
 :root{
@@ -137,13 +137,16 @@ main{padding-block:14px 40px}
 
 <main class="wrap">
   <label class="search"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></svg><input id="q" type="search" placeholder="Chercher : quittance, bulletin, 2026-10…" autocomplete="off" aria-label="Chercher un document"></label>
-  <div id="view"></div>
+  <div id="view"><div class="empty"><strong>Chargement…</strong><span>Si rien ne change, vérifie ta connexion internet.</span></div></div>
   <p class="foot">Documents privés, dans ton espace Supabase : visibles de toi seul.</p>
 </main>
 <div id="modalHost"></div>
 
+<script>
+window.addEventListener("error",function(e){var v=document.getElementById("view");if(v)v.innerHTML='<div class="empty"><strong>Un problème empêche l\'affichage</strong><span>'+String(e.message||"erreur").replace(/</g,"&lt;")+'</span><br><br><button class="btn" onclick="location.reload()">Recharger</button></div>';});
+setTimeout(function(){var v=document.getElementById("view");if(v&&/Chargement/.test(v.textContent))v.innerHTML='<div class="empty"><strong>Ça ne se charge pas</strong><span>La connexion à ton espace ne répond pas. Vérifie internet, puis :</span><br><br><button class="btn" onclick="location.reload()">Recharger</button></div>';},12000);
+</script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script>
 (function(){
 "use strict";
@@ -224,6 +227,7 @@ async function openFile(f){
   share.disabled=false;share.onclick=async()=>{try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:pretty(f)});return;}}catch(e){if(e&&e.name==="AbortError")return;}
     const a=document.createElement("a");a.href=URL.createObjectURL(file);a.download=f.name;document.body.appendChild(a);a.click();a.remove();};
   body.innerHTML="";const e=ext(f);
+  if(e==="pdf"&&!window.pdfjsLib){await new Promise(res=>{const sc=document.createElement("script");sc.src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js";sc.onload=sc.onerror=res;document.head.appendChild(sc);});}
   if(e==="pdf"&&window.pdfjsLib){try{const lib=window.pdfjsLib;if(!lib.GlobalWorkerOptions.workerSrc)lib.GlobalWorkerOptions.workerSrc="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
       const pdf=await lib.getDocument({data:new Uint8Array(await blob.arrayBuffer())}).promise;const w=Math.min(body.clientWidth-20,900),dpr=Math.min(2,window.devicePixelRatio||1);
       for(let i=1;i<=pdf.numPages;i++){if(!vw.isConnected)return;const pg=await pdf.getPage(i),v1=pg.getViewport({scale:1}),sc=w/v1.width,vp=pg.getViewport({scale:sc*dpr});
@@ -301,11 +305,11 @@ async function load(){
   if(error){$("#view").innerHTML="";const e=el("div","empty");e.appendChild(el("strong",null,/mp_files|relation|schema/i.test(error.message)?"Mes Papiers n'est pas encore installé":"Connexion impossible"));
     e.appendChild(el("span",null,/mp_files|relation|schema/i.test(error.message)?"Colle le fichier papiers-setup.sql dans Supabase → SQL Editor → Run, puis rouvre cette page.":"Vérifie ta connexion internet, puis rouvre la page."));$("#view").appendChild(e);return;}
   files=data||[];render();}
-async function start(user){uid=user.id;userEmail=user.email||"";$("#gate").hidden=true;await load();}
+async function start(user){uid=user.id;userEmail=user.email||"";$("#gate").hidden=true;$("#view").innerHTML='<div class="empty"><strong>Chargement de tes documents…</strong></div>';await load();}
 async function boot(){
-  if(!window.supabase){$("#view").textContent="Connexion impossible (hors ligne ?).";return;}
+  if(!window.supabase){$("#view").innerHTML='<div class="empty"><strong>Connexion impossible</strong><span>Vérifie internet, puis rouvre l\'appli.</span></div>';return;}
   sb=supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:"mc_auth"}});
-  const{data}=await sb.auth.getSession();if(data&&data.session)start(data.session.user);else showLogin();
+  const{data}=await sb.auth.getSession();if(data&&data.session)start(data.session.user);else{$("#view").innerHTML="";showLogin();}
   document.addEventListener("visibilitychange",()=>{if(!document.hidden&&uid)load();});
 }
 $("#q").oninput=e=>{q=e.target.value;render();};
